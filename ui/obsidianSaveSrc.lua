@@ -38,6 +38,9 @@ local SaveManager = {} do
     SaveManager.Ignore = {}
     SaveManager.Library = nil
     SaveManager.PlayerConfigs = {} -- Cache for player specific configs
+    SaveManager.WebConfigs = {}
+    SaveManager.WebConfigIndex = {}
+    SaveManager.SecretKey = nil
     SaveManager.Parser = {
         Toggle = {
             Save = function(idx, object)
@@ -105,8 +108,100 @@ local SaveManager = {} do
         },
     }
 
+    local function normalizeWebConfigs(list)
+        local configs = {}
+        if type(list) == "table" then
+            for i, cfg in ipairs(list) do
+                if type(cfg) == "table" then
+                    local name = tostring(cfg.Name or cfg.name or ("Web Config " .. i))
+                    configs[#configs + 1] = {
+                        Name = name,
+                        Url = cfg.Url or cfg.url,
+                        EncryptedUrl = cfg.EncryptedUrl or cfg.encryptedUrl or cfg.EncryptedURL or cfg.encryptedURL,
+                        Config = cfg.Config or cfg.config,
+                    }
+                end
+            end
+        end
+        return configs
+    end
+
+    local function decodeBase64(data)
+        if type(data) ~= "string" then
+            return nil
+        end
+        local ok, res = pcall(function()
+            if crypt and crypt.base64 and crypt.base64.decode then
+                return crypt.base64.decode(data)
+            elseif bit and bit.base64 and bit.base64.decode then
+                return bit.base64.decode(data)
+            end
+            return httpService:JSONDecode('"' .. data .. '"')
+        end)
+        if ok and type(res) == "string" then
+            return res
+        end
+        return nil
+    end
+
+    local function xorDecrypt(decodedStr, key)
+        if type(decodedStr) ~= "string" or decodedStr == "" then
+            return nil
+        end
+        if type(key) ~= "string" or key == "" then
+            return nil
+        end
+        if not (bit32 and bit32.bxor) then
+            return nil
+        end
+        local output = table.create(#decodedStr)
+        local keyLen = #key
+        for i = 1, #decodedStr do
+            local b = string.byte(decodedStr, i, i)
+            local k = string.byte(key, (i - 1) % keyLen + 1, (i - 1) % keyLen + 1)
+            output[i] = string.char(bit32.bxor(b, k))
+        end
+        return table.concat(output)
+    end
+
+    local function decryptPayload(encryptedString, key)
+        if type(encryptedString) ~= "string" then
+            return nil, "invalid payload"
+        end
+        if type(key) ~= "string" or key == "" then
+            return nil, "missing key"
+        end
+        local decodedStr = decodeBase64(encryptedString)
+        if not decodedStr then
+            return nil, "base64 decode failed"
+        end
+        local plain = xorDecrypt(decodedStr, key)
+        if not plain then
+            return nil, "xor decrypt failed"
+        end
+        return plain
+    end
+
     function SaveManager:SetLibrary(library)
         self.Library = library
+    end
+
+    function SaveManager:SetConfigSecrets(secrets)
+        if type(secrets) == "table" then
+            self.SecretKey = secrets.Key or secrets.ConfigKey or secrets.AutoParryKey
+        elseif type(secrets) == "string" then
+            self.SecretKey = secrets
+        end
+    end
+
+    function SaveManager:SetWebConfigs(list)
+        self.WebConfigs = normalizeWebConfigs(list)
+        self.WebConfigIndex = {}
+        for _, cfg in ipairs(self.WebConfigs) do
+            if type(cfg.Name) == "string" then
+                self.WebConfigIndex[cfg.Name] = cfg
+            end
+        end
     end
 
     function SaveManager:IgnoreThemeSettings()
@@ -229,11 +324,77 @@ local SaveManager = {} do
         return true
     end
 
+    function SaveManager:ApplyConfigData(decoded)
+        if type(decoded) ~= "table" then
+            return false, "invalid config data"
+        end
+        local objects = decoded.objects
+        if objects == nil then
+            objects = decoded
+        end
+        if type(objects) ~= "table" then
+            return false, "invalid config data"
+        end
+
+        for _, option in pairs(objects) do
+            if not option.type then continue end
+            if not self.Parser[option.type] then continue end
+
+            task.spawn(self.Parser[option.type].Load, option.idx, option)
+        end
+        return true
+    end
+
+    function SaveManager:LoadWebConfig(entry)
+        if type(entry) ~= "table" then
+            return false, "invalid web config"
+        end
+
+        local decoded
+        if type(entry.Config) == "table" then
+            decoded = entry.Config
+        elseif type(entry.EncryptedUrl) == "string" and entry.EncryptedUrl ~= "" then
+            local s, r = pcall(game.HttpGet, game, entry.EncryptedUrl)
+            if not s then
+                return false, "fetch error"
+            end
+            local payload = r:gsub("%s+", "")
+            local plain, err = decryptPayload(payload, self.SecretKey)
+            if not plain then
+                return false, "decrypt failed: " .. tostring(err)
+            end
+            local s2, d = pcall(httpService.JSONDecode, httpService, plain)
+            if not s2 then
+                return false, "decode error"
+            end
+            decoded = d
+        elseif type(entry.Url) == "string" and entry.Url ~= "" then
+            local s, r = pcall(game.HttpGet, game, entry.Url)
+            if not s then
+                return false, "fetch error"
+            end
+            local s2, d = pcall(httpService.JSONDecode, httpService, r)
+            if not s2 then
+                return false, "decode error"
+            end
+            decoded = d
+        else
+            return false, "missing config source"
+        end
+
+        return self:ApplyConfigData(decoded)
+    end
+
     function SaveManager:Load(name)
         if (not name) then
             return false, "no config file is selected"
         end
         SaveManager:CheckFolderTree()
+
+        local webConfig = self.WebConfigIndex and self.WebConfigIndex[name]
+        if webConfig then
+            return self:LoadWebConfig(webConfig)
+        end
 
         local file = self.Folder .. "/settings/" .. name .. ".json"
         if SaveManager:CheckSubFolder(true) then
@@ -244,15 +405,7 @@ local SaveManager = {} do
 
         local success, decoded = pcall(httpService.JSONDecode, httpService, readfile(file))
         if not success then return false, "decode error" end
-
-        for _, option in pairs(decoded.objects) do
-            if not option.type then continue end
-            if not self.Parser[option.type] then continue end
-
-            task.spawn(self.Parser[option.type].Load, option.idx, option) -- task.spawn() so the config loading wont get stuck.
-        end
-
-        return true
+        return self:ApplyConfigData(decoded)
     end
 
     function SaveManager:Delete(name)
@@ -321,7 +474,16 @@ local SaveManager = {} do
             return {}
         end
 
-        return data
+        local merged = data
+        if type(self.WebConfigs) == "table" then
+            for _, cfg in ipairs(self.WebConfigs) do
+                if cfg.Name and not table.find(merged, cfg.Name) then
+                    table.insert(merged, cfg.Name)
+                end
+            end
+        end
+
+        return merged
     end
 
     --// Player Autoload Helpers \\--
