@@ -12,8 +12,35 @@ return function(ctx)
         return type(tab) == "table" and tab.key ~= "UI Settings"
     end
 
+    local function moduleVisible(mod)
+        if not mod or type(mod) ~= "table" then
+            return false
+        end
+        if mod.hidden == true or mod.wizardHidden == true then
+            return false
+        end
+        if type(mod.config) == "table" and mod.config.Enabled == false then
+            return false
+        end
+        return true
+    end
+
+    local function tabHasVisibleModules(tabKey)
+        for _, mod in ipairs(Modules) do
+            if moduleVisible(mod) then
+                if mod.tab == tabKey then
+                    return true
+                end
+                if mod.tabs and type(mod.tabs) == "table" and table.find(mod.tabs, tabKey) then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
     for _, tab in ipairs(Tabs) do
-        if isWizardTab(tab) then
+        if isWizardTab(tab) and tabHasVisibleModules(tab.key) then
             WizardTabs[#WizardTabs + 1] = tab
         end
     end
@@ -99,23 +126,22 @@ return function(ctx)
             return
         end
         for k, v in pairs(node) do
-            if IGNORE_KEYS[k] then
-                continue
-            end
-            if type(v) == "boolean" then
-                local p = { table.unpack(path) }
-                p[#p + 1] = k
-                if not filter or filter(p, v, root) then
-                    out[#out + 1] = {
-                        path = p,
-                        label = describePath(root, p),
-                        default = v,
-                    }
+            if not IGNORE_KEYS[k] then
+                if type(v) == "boolean" then
+                    local p = { table.unpack(path) }
+                    p[#p + 1] = k
+                    if not filter or filter(p, v, root) then
+                        out[#out + 1] = {
+                            path = p,
+                            label = describePath(root, p),
+                            default = v,
+                        }
+                    end
+                elseif type(v) == "table" then
+                    local p = { table.unpack(path) }
+                    p[#p + 1] = k
+                    collectToggles(root, v, p, out, filter)
                 end
-            elseif type(v) == "table" then
-                local p = { table.unpack(path) }
-                p[#p + 1] = k
-                collectToggles(root, v, p, out, filter)
             end
         end
     end
@@ -143,15 +169,17 @@ return function(ctx)
     local function buildAllOverrides()
         local out = {}
         for _, mod in ipairs(Modules) do
-            local cfg = mod.config
-            if type(cfg) == "table" then
+            if moduleVisible(mod) then
+                local cfg = mod.config
                 local toggles = {}
-                collectToggles(cfg, cfg, {}, toggles, mod.wizardFilter)
-                local modOut = {}
-                for _, item in ipairs(toggles) do
-                    setPath(modOut, item.path, true)
+                if type(cfg) == "table" then
+                    collectToggles(cfg, cfg, {}, toggles, mod.wizardFilter)
+                    local modOut = {}
+                    for _, item in ipairs(toggles) do
+                        setPath(modOut, item.path, item.default == true)
+                    end
+                    out[mod.key] = modOut
                 end
-                out[mod.key] = modOut
             end
         end
         return out
@@ -257,7 +285,7 @@ return function(ctx)
     local modeGrid = pageMode:AddCardGrid(1, 120)
     modeGrid:AddActionCard(
         "Include Everything",
-        "Enable every tab and feature. Great for first run; trim later in UI Settings.",
+        "Enable every tab while keeping default feature settings.",
         function()
             result = {
                 mode = "all",
@@ -343,6 +371,9 @@ return function(ctx)
     local moduleTabMap = {}
 
     local function moduleAllowed(mod, tabsEnabled)
+        if not moduleVisible(mod) then
+            return false
+        end
         if mod.tabs and type(mod.tabs) == "table" then
             for _, t in ipairs(mod.tabs) do
                 if not tabsEnabled[t] then
@@ -412,18 +443,20 @@ return function(ctx)
 
         local modulesOut = {}
         for _, mod in ipairs(Modules) do
-            seedModuleState(mod)
-            local state = moduleStates[mod.key]
-            if state then
-                local modOut = {}
-                for key, val in pairs(state) do
-                    local path = {}
-                    for part in string.gmatch(key, "[^%.]+") do
-                        path[#path + 1] = part
+            if moduleVisible(mod) then
+                seedModuleState(mod)
+                local state = moduleStates[mod.key]
+                if state then
+                    local modOut = {}
+                    for key, val in pairs(state) do
+                        local path = {}
+                        for part in string.gmatch(key, "[^%.]+") do
+                            path[#path + 1] = part
+                        end
+                        setPath(modOut, path, val == true)
                     end
-                    setPath(modOut, path, val == true)
+                    modulesOut[mod.key] = modOut
                 end
-                modulesOut[mod.key] = modOut
             end
         end
 
