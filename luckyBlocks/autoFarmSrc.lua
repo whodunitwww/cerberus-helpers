@@ -22,7 +22,7 @@ return function(env)
     local AutoFarmState = {
         Enabled = false,
         RunId = 0,
-        TravelSpeed = 38,
+        TravelSpeed = 36,
         StopDistance = 10, -- Default for BLOCKS
         ActiveHumanoid = nil,
         OriginalWalkSpeed = nil,
