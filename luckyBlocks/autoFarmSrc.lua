@@ -15,7 +15,7 @@ return function(env)
     local DamageBlockEvent = Services.ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("DamageBlockEvent")
 
     -- UI Setup
-    local AutoFarmBox = Tabs.Auto:AddLeftGroupbox("AutoFarm", "spinner")
+    local AutoFarmBox = Tabs.Auto:AddLeftGroupbox("AutoFarm", "bot")
     local AutoFarmStatusLabel = AutoFarmBox:AddLabel("Idle", true)
 
     -- State Tables
