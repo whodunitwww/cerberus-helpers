@@ -4,6 +4,14 @@ return function(ctx)
     local Services = ctx.Services
 
     local Configs = {}
+    local CORPSE_PART_NAMES = {
+        SaintsLeftArm = true,
+        SaintsRightArm = true,
+        SaintsLeftLeg = true,
+        SaintsRightLeg = true,
+        SaintsRibcage = true,
+        SaintsHeart = true,
+    }
 
     Configs.HomeConfig = {
         About = true,
@@ -289,6 +297,12 @@ return function(ctx)
                 MinRepathInterval = 0.30,
             },
         },
+    }
+
+    Configs.AutoCorpseConfig = {
+        TrackerBaseUrl = "https://corpse-sniper.vercel.app",
+        PollSeconds = 5,
+        RequestTimeout = 8,
     }
 
     Configs.PlayerUtilsConfig = {
@@ -689,13 +703,12 @@ return function(ctx)
                         return inst.Position
                     end,
                     filter = function(inst)
-                        local workspace = game:GetService("Workspace")
-                        if inst.Parent ~= workspace or type(inst.Name) ~= "string" then
+                        if type(inst.Name) ~= "string" then
                             return false
                         end
 
                         return (inst:IsA("Part") or inst:IsA("MeshPart"))
-                            and inst.Name:find("Saint", 1, true) ~= nil
+                            and CORPSE_PART_NAMES[inst.Name] == true
                     end,
                 },
             },
