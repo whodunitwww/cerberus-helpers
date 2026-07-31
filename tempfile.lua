@@ -256,13 +256,13 @@ local UNIVERSE_MAP = {
     ["10006104044"] = "wizardsAlchemy.lua", ["2309918273"] = "vv.lua", ["9826885587"] = "evomon.lua",
     ["10200395747"] = "gag2.lua", ["2644656496"] = "hazeSeas.lua", ["9199655655"] = "gakuran.lua",
     ["7613921865"] = "animeExpeditions.lua", ["4827308727"] = "havoc.lua", ["7395930870"] = "sellLemons.lua",
-    ["10148749921"] = "animalHospital.lua", ["1511883870"] = "shindoLife.lua",
+    ["10148749921"] = "animalHospital.lua", ["1511883870"] = "shindoLife.lua", ["7529591378"] = "practicalBasketball.lua"
 }
 
 local FREE_SCRIPTS = {
     ["animeExpeditions.lua"] = true, ["gag2.lua"] = true, ["slime.lua"] = true, ["deepwoken.lua"] = true,
     ["sellLemons.lua"] = true, ["animalHospital.lua"] = true, ["animeWarriors3.lua"] = true, ["bbn.lua"] = true,
-    ["shindoLife.lua"] = true,
+    ["shindoLife.lua"] = true, ["practicalBasketball.lua"] = true
 }
 
 local LUARMOR_SDK_URL   = "https://sdkapi-public.luarmor.net/library.lua"
