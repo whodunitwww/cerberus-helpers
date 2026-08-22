@@ -258,14 +258,14 @@ local UNIVERSE_MAP = {
     ["7613921865"] = "animeExpeditions.lua", ["4827308727"] = "havoc.lua", ["7395930870"] = "sellLemons.lua",
     ["10148749921"] = "animalHospital.lua", ["1511883870"] = "shindoLife.lua", ["7529591378"] = "practicalBasketball.lua", ["578392296"] = "aba.lua",
     ["6035872082"] = "rivals.lua", ["6385532960"] = "ryujin.lua", ["10563114921"] = "stealAnEgg.lua", ["4760747038"] = "wonderland.lua",
-    ["6739698191"] = "violenceDistrict.lua", ["9931749389"] = "dqr.lua"
+    ["6739698191"] = "violenceDistrict.lua", ["9931749389"] = "dqr.lua", ["2459091562"] = "RH2"
 }
 
 local FREE_SCRIPTS = {
     ["animeExpeditions.lua"] = true, ["gag2.lua"] = true, ["slime.lua"] = true, ["deepwoken.lua"] = true,
     ["sellLemons.lua"] = true, ["animalHospital.lua"] = true, ["animeWarriors3.lua"] = true, ["bbn.lua"] = true,
     ["shindoLife.lua"] = true, ["practicalBasketball.lua"] = true, ["aba.lua"] = true, ["rivals.lua"] = true, ["ryujin.lua"] = true,
-    ["stealAnEgg.lua"] = true, ["wonderland.lua"] = true, ["violenceDistrict.lua"] = true, ["dqr.lua"] = true
+    ["stealAnEgg.lua"] = true, ["wonderland.lua"] = true, ["violenceDistrict.lua"] = true, ["dqr.lua"] = true, ["RH2"] = true
 }
 
 local LUARMOR_SDK_URL   = "https://sdkapi-public.luarmor.net/library.lua"
