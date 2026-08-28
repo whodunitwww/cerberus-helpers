@@ -265,7 +265,8 @@ local FREE_SCRIPTS = {
     ["animeExpeditions.lua"] = true, ["gag2.lua"] = true, ["slime.lua"] = true, ["deepwoken.lua"] = true,
     ["sellLemons.lua"] = true, ["animalHospital.lua"] = true, ["animeWarriors3.lua"] = true, ["bbn.lua"] = true,
     ["shindoLife.lua"] = true, ["practicalBasketball.lua"] = true, ["aba.lua"] = true, ["rivals.lua"] = true, ["ryujin.lua"] = true,
-    ["stealAnEgg.lua"] = true, ["wonderland.lua"] = true, ["violenceDistrict.lua"] = true, ["dqr.lua"] = true, ["RH2.lua"] = true
+    ["stealAnEgg.lua"] = true, ["wonderland.lua"] = true, ["violenceDistrict.lua"] = true, ["dqr.lua"] = true, ["RH2.lua"] = true,
+    ["bridger.lua"] = true
 }
 
 local LUARMOR_SDK_URL   = "https://sdkapi-public.luarmor.net/library.lua"
