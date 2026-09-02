@@ -212,6 +212,8 @@ local CoreGui          = game:GetService("CoreGui")
 local GITHUB_BASE_URL  = "https://raw.githubusercontent.com/safetrademarketplace/scripts/refs/heads/main/"
 local UNIVERSAL_URL    = "https://api.luarmor.net/files/v4/loaders/1acad587672d96c8afb9c5bbc36bf921.lua"
 local DISCORD_URL      = "https://getcerberus.com/discord"
+local EXECUTORS_URL    = "https://getcerberus.com/executors"
+local BROKE_URL        = "https://getcerberus.com/madium"
 local LOGO_ASSET       = "rbxassetid://136497541793809"
 
 local C = {
@@ -286,6 +288,34 @@ end
 
 local ENV = (type(getgenv) == "function" and getgenv()) or _G
 local function truthy(v) return v ~= nil and v ~= false and v ~= 0 and v ~= "" end
+
+-- executors cerberus does not run on, matched against the reported name
+local UNSUPPORTED_EXECUTORS = {
+    { match = "xeno",   name = "Xeno" },
+    { match = "solara", name = "Solara" },
+    { match = "delta",  name = "Delta" },
+}
+
+local function executorName()
+    local ok, name = pcall(function()
+        if type(identifyexecutor) == "function" then return identifyexecutor() end
+        if type(getexecutorname) == "function" then return getexecutorname() end
+        return nil
+    end)
+    if ok and type(name) == "string" and name ~= "" then return name end
+    return nil
+end
+
+local function unsupportedExecutor()
+    if truthy(ENV.CERBERUS_IGNORE_EXECUTOR or _G.CERBERUS_IGNORE_EXECUTOR) then return nil end
+    local raw = executorName()
+    if not raw then return nil end
+    local low = raw:lower()
+    for _, e in ipairs(UNSUPPORTED_EXECUTORS) do
+        if low:find(e.match, 1, true) then return e.name end
+    end
+    return nil
+end
 
 local function face(weight)
     local ok, f = pcall(function() return Font.new("rbxasset://fonts/families/BuilderSans.json", weight) end)
@@ -812,6 +842,22 @@ end
 
 task.spawn(function()
 
+    local badExecutor = unsupportedExecutor()
+    if badExecutor then
+        fail({
+            title = badExecutor .. " isn't supported",
+            pill = "UNSUPPORTED",
+            body = "Cerberus doesn't work on " .. badExecutor .. ". It's missing things our scripts need, so nothing here will load properly.\n\n"
+                .. "Copy the link below to see the executors that do work with Cerberus. If you can't pay for one, hit \"I'm broke\" for a free way in.",
+            buttons = {
+                { text = "Copy Executor List", kind = "primary", flash = "Link copied!", cb = function() return copyTo(EXECUTORS_URL) end },
+                { text = "I'm broke", kind = "ghost", flash = "Link copied!", cb = function() return copyTo(BROKE_URL) end },
+                closeBtn,
+            },
+        })
+        return
+    end
+
     local rawKey  = ENV.script_key or _G.script_key or script_key
     local rawFlag = ENV.inDiscord  or _G.inDiscord  or inDiscord
     local skipNag = truthy(rawFlag) or truthy(rawKey)
@@ -893,4 +939,3 @@ task.spawn(function()
     task.wait(0.2)
     runScript(GITHUB_BASE_URL .. fileName, gameName, true)
 end)
-
