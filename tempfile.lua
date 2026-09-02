@@ -214,6 +214,8 @@ local UNIVERSAL_URL    = "https://api.luarmor.net/files/v4/loaders/1acad587672d9
 local DISCORD_URL      = "https://getcerberus.com/discord"
 local EXECUTORS_URL    = "https://getcerberus.com/executors"
 local BROKE_URL        = "https://getcerberus.com/madium"
+local SKIP_FOLDER      = "Cerberus"
+local SKIP_FILE        = "Cerberus/executor_warning.txt"
 local LOGO_ASSET       = "rbxassetid://136497541793809"
 
 local C = {
@@ -304,6 +306,25 @@ local function executorName()
     end)
     if ok and type(name) == "string" and name ~= "" then return name end
     return nil
+end
+
+-- "don't show this again" lives in the workspace, so it survives between runs
+local function warningDismissed()
+    local ok, res = pcall(function() return isfile and isfile(SKIP_FILE) end)
+    return ok and res == true
+end
+
+-- returns whether the file actually ended up in the state we asked for
+local function setWarningDismissed(on, name)
+    pcall(function()
+        if on then
+            if makefolder then pcall(makefolder, SKIP_FOLDER) end
+            if writefile then writefile(SKIP_FILE, "dismissed on " .. tostring(name)) end
+        elseif delfile then
+            delfile(SKIP_FILE)
+        end
+    end)
+    return warningDismissed() == on
 end
 
 local function unsupportedExecutor()
@@ -743,6 +764,51 @@ function Panel:buttons(list)
     self.btnRow.Visible = true
 end
 
+-- a checkbox row for the band the progress bar leaves empty on a stopped screen
+function Panel:option(spec)
+    if self.optRow then self.optRow:Destroy(); self.optRow = nil end
+    if not spec then return end
+
+    local row = make("TextButton", {
+        Text = "", AutoButtonColor = false, BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(22, 204), Size = UDim2.new(1, -44, 0, 24), Parent = self.win,
+    })
+    self.optRow = row
+
+    local box = make("Frame", { BackgroundColor3 = C.surface2, Position = UDim2.fromOffset(0, 4), Size = UDim2.fromOffset(16, 16), Parent = row })
+    corner(box, 5)
+    local boxStroke = stroke(box, C.faint, 0.3)
+    local tick = make("Frame", {
+        BackgroundColor3 = C.accentDk, BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(8, 8), Parent = box,
+    })
+    corner(tick, 3)
+    local lbl = txt({ Text = spec.text, TextSize = 12, TextColor3 = C.faint, Position = UDim2.fromOffset(26, 0), Size = UDim2.new(1, -26, 1, 0), Parent = row })
+
+    local on = spec.value == true
+    local function paint()
+        tween(box, TI(0.14), { BackgroundColor3 = on and C.accent or C.surface2 })
+        tween(tick, TI(0.14), { BackgroundTransparency = on and 0 or 1 })
+        tween(lbl, TI(0.14), { TextColor3 = on and C.text or C.faint })
+        boxStroke.Color = on and C.accent or C.faint
+        boxStroke.Transparency = on and 0.2 or 0.3
+    end
+    paint()
+
+    self:track(row.MouseEnter:Connect(function() if not on then tween(lbl, TI(0.1), { TextColor3 = C.subtext }) end end))
+    self:track(row.MouseLeave:Connect(function() if not on then tween(lbl, TI(0.16), { TextColor3 = C.faint }) end end))
+    self:track(row.MouseButton1Click:Connect(function()
+        local want = not on
+        if spec.cb and spec.cb(want) == false then
+            lbl.Text = spec.failText or spec.text
+            return
+        end
+        on = want
+        lbl.Text = spec.text
+        paint()
+    end))
+end
+
 function Panel:fadeOut(cb)
     self:stopPulse()
     if self.sweepTween then self.sweepTween:Cancel(); self.sweepTween = nil end
@@ -770,6 +836,7 @@ local function fail(o)
     panel:mode(o.pill or "ERROR", o.color or C.danger)
     panel:icon(o.color or C.danger, o.glyph or "!")
     panel:set({ title = o.title, titleColor = o.color or C.danger, body = o.body })
+    panel:option(o.option)
     panel:buttons(o.buttons)
 end
 
@@ -840,23 +907,15 @@ local function runScript(url, label, bust)
     panel:fadeOut(function() pcall(fn) end)
 end
 
-task.spawn(function()
+local booting = false
+local function boot()
+    if booting then return end
+    booting = true
 
-    local badExecutor = unsupportedExecutor()
-    if badExecutor then
-        fail({
-            title = badExecutor .. " isn't supported",
-            pill = "UNSUPPORTED",
-            body = "Cerberus doesn't work on " .. badExecutor .. ". It's missing things our scripts need, so nothing here will load properly.\n\n"
-                .. "Copy the link below to see the executors that do work with Cerberus. If you can't pay for one, hit \"I'm broke\" for a free way in.",
-            buttons = {
-                { text = "Copy Executor List", kind = "primary", flash = "Link copied!", cb = function() return copyTo(EXECUTORS_URL) end },
-                { text = "I'm broke", kind = "ghost", flash = "Link copied!", cb = function() return copyTo(BROKE_URL) end },
-                closeBtn,
-            },
-        })
-        return
-    end
+    -- clears the warning screen's dressing when we get here from "Continue anyway"
+    panel:mode("LOADER", C.faint)
+    panel:icon(C.accent)
+    panel:option(nil)
 
     local rawKey  = ENV.script_key or _G.script_key or script_key
     local rawFlag = ENV.inDiscord  or _G.inDiscord  or inDiscord
@@ -938,4 +997,32 @@ task.spawn(function()
     panel:progress(0.6)
     task.wait(0.2)
     runScript(GITHUB_BASE_URL .. fileName, gameName, true)
+end
+
+local function warnUnsupported(name)
+    fail({
+        title = name .. " isn't supported",
+        pill = "UNSUPPORTED",
+        body = "Cerberus doesn't work properly on " .. name .. " — it's missing things our scripts need, so features will break or nothing will load.\n\n"
+            .. "Copy the link below for executors that do work. Can't pay for one? Hit \"I'm broke\".",
+        option = {
+            text = "Don't show this again",
+            failText = "Couldn't save — this executor can't write files",
+            cb = function(want) return setWarningDismissed(want, name) end,
+        },
+        buttons = {
+            { text = "Copy Executor List", kind = "primary", flash = "Link copied!", cb = function() return copyTo(EXECUTORS_URL) end },
+            { text = "I'm broke", kind = "ghost", flash = "Link copied!", cb = function() return copyTo(BROKE_URL) end },
+            { text = "Continue anyway", kind = "ghost", cb = function() task.spawn(boot) end },
+        },
+    })
+end
+
+task.spawn(function()
+    local badExecutor = unsupportedExecutor()
+    if badExecutor and not warningDismissed() then
+        warnUnsupported(badExecutor)
+        return
+    end
+    boot()
 end)
