@@ -203,7 +203,6 @@
 
 
 
--- whatever you're looking for, you won't find it here...
 local UserInputService = game:GetService("UserInputService")
 local TweenService     = game:GetService("TweenService")
 local Players          = game:GetService("Players")
@@ -212,11 +211,21 @@ local CoreGui          = game:GetService("CoreGui")
 local GITHUB_BASE_URL  = "https://raw.githubusercontent.com/safetrademarketplace/scripts/refs/heads/main/"
 local UNIVERSAL_URL    = "https://api.luarmor.net/files/v4/loaders/1acad587672d96c8afb9c5bbc36bf921.lua"
 local DISCORD_URL      = "https://getcerberus.com/discord"
-local EXECUTORS_URL    = "https://getcerberus.com/executors"
-local BROKE_URL        = "https://getcerberus.com/madium"
+local CHIMERA_DISCORD  = "https://discord.gg/fhErCU8GJx"
+local CHIMERA_LOGO     = "rbxassetid://109836038071568"
+local SUNC_RESULTS     = "https://r.sunc.su/w6aTeygyt9"
+local MYRIAD_RESULTS   = "https://myriad.tools/view/s/e195a47b49"
 local SKIP_FOLDER      = "Cerberus"
 local SKIP_FILE        = "Cerberus/executor_warning.txt"
 local LOGO_ASSET       = "rbxassetid://136497541793809"
+
+-- off chimera, a keyless run waits FREE_WAIT; a keyed run gets a short pitch one run in PAID_PITCH_ODDS
+local FREE_WAIT        = 15
+local PAID_PITCH_WAIT  = 5
+local PAID_PITCH_ODDS  = 3
+
+-- the pitch slides fill the window body between the header and the progress bar
+local SLIDE_W, SLIDE_H = 416, 126
 
 local C = {
     bg        = Color3.fromRGB(12, 15, 21),
@@ -291,6 +300,14 @@ end
 
 local ENV = (type(getgenv) == "function" and getgenv()) or _G
 local function truthy(v) return v ~= nil and v ~= false and v ~= 0 and v ~= "" end
+
+-- chimera answers this itself; every other executor has no such function
+local function onChimera()
+    local fn = ENV.isChimera or _G.isChimera or isChimera
+    if type(fn) ~= "function" then return false end
+    local ok, on = pcall(fn)
+    return ok and truthy(on)
+end
 
 -- executors cerberus does not run on, matched against the reported name
 local UNSUPPORTED_EXECUTORS = {
@@ -481,7 +498,7 @@ function Panel.new()
         TextYAlignment = Enum.TextYAlignment.Top, AutomaticSize = Enum.AutomaticSize.Y,
         Size = UDim2.new(1, -6, 0, 0), Parent = bodyScroll,
     })
-    self.body = body
+    self.body, self.bodyScroll = body, bodyScroll
 
     local progWrap = make("Frame", { BackgroundColor3 = C.track, BorderSizePixel = 0, ClipsDescendants = true, Position = UDim2.fromOffset(22, 210), Size = UDim2.new(1, -44, 0, 5), Parent = win })
     corner(progWrap, 3)
@@ -602,56 +619,91 @@ function Panel:busy()
     self.sweepTween = tween(self.sweep, TweenInfo.new(1.1, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Position = UDim2.new(1.03, 0, 0, 0) })
 end
 
-function Panel:nag(seconds, discordUrl)
-    self:mode("KEYLESS", C.accent)
-    self:icon(C.accent)
-    self:set({
-        title = "Free & Keyless",
-        titleColor = C.accent,
-        body = "This script is completely free and keyless, from Cerberus.\n\nJoin our Discord to skip the wait — and to unlock all our other keyless scripts, free.",
+-- auto-advancing slides in the window body: each page fades and drifts in from the right, dots track
+-- the page; a builder fills its page and may return a function to play once the page is on screen
+function Panel:slides(builders, interval)
+    self:stopSlides()
+    local wrap = make("Frame", {
+        BackgroundTransparency = 1, ClipsDescendants = true,
+        Position = UDim2.fromOffset(22, 62), Size = UDim2.fromOffset(SLIDE_W, SLIDE_H + 14), Parent = self.win,
     })
+    local dotRow = make("Frame", {
+        BackgroundTransparency = 1, Visible = #builders > 1, AnchorPoint = Vector2.new(0.5, 1),
+        Position = UDim2.new(0.5, 0, 1, 0), Size = UDim2.new(1, 0, 0, 6), Parent = wrap,
+    })
+    make("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center,
+        VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = dotRow,
+    })
+
+    local pages, plays, dots = {}, {}, {}
+    for i, build in ipairs(builders) do
+        local page = make("CanvasGroup", {
+            BackgroundTransparency = 1, GroupTransparency = 1, Visible = false,
+            Size = UDim2.fromOffset(SLIDE_W, SLIDE_H), Parent = wrap,
+        })
+        pages[i], plays[i] = page, build(page, self)
+        dots[i] = make("Frame", { BackgroundColor3 = C.faint, BorderSizePixel = 0, Size = UDim2.fromOffset(6, 6), LayoutOrder = i, Parent = dotRow })
+        corner(dots[i], 3)
+    end
+
+    local shown = 0
+    local function go(i)
+        local prev = pages[shown]
+        if prev then
+            tween(prev, TI(0.3), { GroupTransparency = 1, Position = UDim2.fromOffset(-28, 0) })
+            tween(dots[shown], TI(0.3), { BackgroundColor3 = C.faint, Size = UDim2.fromOffset(6, 6) })
+        end
+        local page = pages[i]
+        page.Position, page.GroupTransparency, page.Visible = UDim2.fromOffset(28, 0), 1, true
+        tween(page, TI(0.4), { GroupTransparency = 0, Position = UDim2.fromOffset(0, 0) })
+        tween(dots[i], TI(0.3), { BackgroundColor3 = C.accent, Size = UDim2.fromOffset(18, 6) })
+        if plays[i] then pcall(plays[i]) end
+        shown = i
+    end
+
+    local token = {}
+    self.slideToken, self.slideWrap = token, wrap
+    go(1)
+    task.spawn(function()
+        for i = 2, #pages do
+            task.wait(interval)
+            if self.slideToken ~= token or not self.gui then return end
+            go(i)
+        end
+    end)
+end
+
+function Panel:stopSlides()
+    self.slideToken = nil
+    if self.slideWrap then self.slideWrap:Destroy(); self.slideWrap = nil end
+end
+
+-- the chimera pitch: slides play in the body while the bar fills over `seconds`; false if the window was closed
+function Panel:pitch(o)
+    self:mode(o.pill, C.accent)
+    self.iconWrap.Visible, self.title.Visible, self.bodyScroll.Visible = false, false, false
     self.progWrap.Visible = true
     self.statusRow.Visible = true
-    self:startPulse()
-    self:buttons({
-        { text = "Copy Discord", kind = "primary", flash = "Link copied!", cb = function()
-            if setclipboard then setclipboard(discordUrl); return true end
-            return false
-        end },
-
-        { text = "Skip the wait", kind = "ghost", cb = function()
-            self:popup({
-                title = "Skip the wait — go keyless",
-                intro = "This script is free forever. Grab it from our Discord and you'll never see this wait again.",
-                steps = {
-                    "Join the Cerberus Discord.",
-                    "Open the #free-panel channel.",
-                    "Run the loader posted there — instant, every time.",
-                },
-                footer = "Every other Cerberus keyless script lives there too, all free.",
-                buttons = {
-                    { text = "Copy Discord", kind = "primary", flash = "Link copied!", cb = function()
-                        if setclipboard then setclipboard(discordUrl); return true end
-                        return false
-                    end },
-                    { text = "Got it", kind = "ghost", close = true },
-                },
-            })
-        end },
-    })
+    self.statusDot.BackgroundColor3 = C.accent
+    self:slides(o.slides, o.seconds / #o.slides)
+    self:buttons(o.buttons)
 
     self.sweep.Visible = false
     if self.sweepTween then self.sweepTween:Cancel(); self.sweepTween = nil end
     self.fill.Size = UDim2.new(0, 0, 1, 0)
-    tween(self.fill, TweenInfo.new(seconds, Enum.EasingStyle.Linear), { Size = UDim2.new(1, 0, 1, 0) })
+    tween(self.fill, TweenInfo.new(o.seconds, Enum.EasingStyle.Linear), { Size = UDim2.new(1, 0, 1, 0) })
 
-    for s = seconds, 1, -1 do
+    for s = o.seconds, 1, -1 do
         if not self.gui then return false end
         self.statusLbl.Text = "Continuing in " .. s .. "s"
         task.wait(1)
     end
     self:closePopup()
-    return self.gui ~= nil
+    self:stopSlides()
+    if not self.gui then return false end
+    self.iconWrap.Visible, self.title.Visible, self.bodyScroll.Visible = true, true, true
+    return true
 end
 
 function Panel:popup(o)
@@ -697,7 +749,7 @@ function Panel:popup(o)
         local b = make("TextButton", {
             Text = spec.text, FontFace = primary and FONT.semi or FONT.med, TextSize = 13,
             TextColor3 = primary and C.accentDk or C.subtext, AutoButtonColor = false,
-            BackgroundColor3 = primary and C.accent or C.surface2, Size = UDim2.fromOffset(primary and 150 or 96, 34), LayoutOrder = i, Parent = btns,
+            BackgroundColor3 = primary and C.accent or C.surface2, Size = UDim2.fromOffset(primary and 166 or 96, 34), LayoutOrder = i, Parent = btns,
         })
         corner(b, 9)
         if not primary then stroke(b, C.white, 0.9) end
@@ -737,7 +789,7 @@ function Panel:buttons(list)
     if not list or #list == 0 then self.btnRow.Visible = false; return end
     for i, spec in ipairs(list) do
         local primary = spec.kind == "primary"
-        local w = primary and 158 or 116
+        local w = primary and 166 or 112
         local b = make("TextButton", {
             Text = spec.text, FontFace = primary and FONT.semi or FONT.med, TextSize = 13,
             TextColor3 = primary and C.accentDk or C.subtext, AutoButtonColor = false,
@@ -819,6 +871,7 @@ function Panel:fadeOut(cb)
 end
 
 function Panel:destroy()
+    self.slideToken = nil
     for _, c in ipairs(self.conns) do pcall(function() c:Disconnect() end) end
     table.clear(self.conns)
     if self.gui then self.gui:Destroy(); self.gui = nil end
@@ -842,9 +895,211 @@ local function fail(o)
 end
 
 local closeBtn = { text = "Close", kind = "ghost", cb = function() panel:destroy() end }
-local discordBtn = { text = "Copy Discord", kind = "primary", flash = "Discord copied!", cb = function() return copyTo(DISCORD_URL) end }
+local getKeyBtn = { text = "Get a key", kind = "ghost", flash = "Discord copied!", cb = function() return copyTo(DISCORD_URL) end }
+local chimeraBtn = { text = "Copy Chimera Discord", kind = "primary", flash = "Link copied!", cb = function() return copyTo(CHIMERA_DISCORD) end }
+
+local skipWaitBtn = { text = "Skip the wait", kind = "ghost", cb = function()
+    panel:popup({
+        title = "Skip the wait — go keyless",
+        intro = "Chimera is a fully keyless executor. Run Cerberus on it and this wait is gone for good.",
+        steps = {
+            "Join the Chimera Discord.",
+            "Download Chimera — no key, ever.",
+            "Run Cerberus there. No wait, no key.",
+        },
+        footer = "On Chimera, every premium Cerberus feature unlocks for free too.",
+        buttons = {
+            { text = "Copy Chimera Discord", kind = "primary", flash = "Link copied!", cb = function() return copyTo(CHIMERA_DISCORD) end },
+            { text = "Got it", kind = "ghost", close = true },
+        },
+    })
+end }
+
+-- chimera pitch slides: each fills a blank SLIDE_W x SLIDE_H page and returns what to play when it comes on screen
+local function slideHeading(page, text)
+    return txt({ Text = text, FontFace = FONT.bold, TextSize = 16, Size = UDim2.new(1, 0, 0, 22), Parent = page })
+end
+
+local function heroSlide(eyebrow, title, body)
+    return function(page)
+        local badge = make("Frame", { BackgroundColor3 = C.surface2, Position = UDim2.fromOffset(0, 14), Size = UDim2.fromOffset(88, 88), Parent = page })
+        corner(badge, 22)
+        local ring = stroke(badge, C.accent, 0.4, 1.5)
+        local logo = make("ImageLabel", {
+            BackgroundTransparency = 1, Image = CHIMERA_LOGO, ScaleType = Enum.ScaleType.Fit,
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(62, 62), Parent = badge,
+        })
+        local pop = make("UIScale", { Scale = 1, Parent = logo })
+        txt({ Text = eyebrow, FontFace = FONT.bold, TextSize = 11, TextColor3 = C.accent, Position = UDim2.fromOffset(106, 12), Size = UDim2.new(1, -106, 0, 14), Parent = page })
+        txt({ Text = title, FontFace = FONT.bold, TextSize = 19, Position = UDim2.fromOffset(106, 28), Size = UDim2.new(1, -106, 0, 26), Parent = page })
+        txt({
+            Text = body, TextSize = 13, TextColor3 = C.subtext, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
+            Position = UDim2.fromOffset(106, 58), Size = UDim2.new(1, -106, 0, 66), Parent = page,
+        })
+        return function()
+            pop.Scale = 0.55
+            tween(pop, TI(0.55, Enum.EasingStyle.Back), { Scale = 1 })
+            tween(ring, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Transparency = 0.9 })
+        end
+    end
+end
+
+local BENCHMARKS = {
+    { name = "sUNC",   value = 100, shown = "100", link = SUNC_RESULTS },
+    { name = "Myriad", value = 100, shown = "100", link = MYRIAD_RESULTS },
+    { name = "UNC",    value = 95,  shown = "~95" },
+}
+
+local function benchmarkSlide(page, owner)
+    slideHeading(page, "Top scores on executor tests")
+    local gap = 10
+    local w = math.floor((SLIDE_W - gap * 2) / 3)
+    local tiles = {}
+    for i, b in ipairs(BENCHMARKS) do
+        local tile = make("TextButton", {
+            Text = "", AutoButtonColor = false, BackgroundColor3 = C.surface2,
+            Position = UDim2.fromOffset((i - 1) * (w + gap), 30), Size = UDim2.fromOffset(w, 74), Parent = page,
+        })
+        corner(tile, 12)
+        stroke(tile, C.white, 0.92)
+        local num = txt({ Text = "0", FontFace = FONT.bold, TextSize = 28, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Center, Position = UDim2.fromOffset(0, 8), Size = UDim2.new(1, 0, 0, 32), Parent = tile })
+        local name = txt({ Text = b.name, FontFace = FONT.semi, TextSize = 12, TextColor3 = C.subtext, TextXAlignment = Enum.TextXAlignment.Center, Position = UDim2.fromOffset(0, 40), Size = UDim2.new(1, 0, 0, 16), Parent = tile })
+        local bar = make("Frame", { BackgroundColor3 = C.track, BorderSizePixel = 0, Position = UDim2.new(0, 14, 1, -13), Size = UDim2.new(1, -28, 0, 4), Parent = tile })
+        corner(bar, 2)
+        local fill = make("Frame", { BackgroundColor3 = C.accent, BorderSizePixel = 0, Size = UDim2.new(0, 0, 1, 0), Parent = bar })
+        corner(fill, 2)
+        if b.link then
+            owner:track(tile.MouseEnter:Connect(function() tween(tile, TI(0.1), { BackgroundColor3 = C.track }) end))
+            owner:track(tile.MouseLeave:Connect(function() tween(tile, TI(0.16), { BackgroundColor3 = C.surface2 }) end))
+            owner:track(tile.MouseButton1Click:Connect(function()
+                name.Text = copyTo(b.link) and "Link copied!" or "Unavailable"
+                task.delay(1.4, function() if name.Parent then name.Text = b.name end end)
+            end))
+        end
+        tiles[i] = { num = num, fill = fill, b = b }
+    end
+    txt({ Text = "Tap a score to copy its results link.", TextSize = 11, TextColor3 = C.faint, Position = UDim2.fromOffset(0, 110), Size = UDim2.new(1, 0, 0, 14), Parent = page })
+    return function()
+        for i, t in ipairs(tiles) do
+            t.num.Text, t.fill.Size = "0", UDim2.new(0, 0, 1, 0)
+            task.delay((i - 1) * 0.12, function()
+                tween(t.fill, TI(0.9), { Size = UDim2.new(t.b.value / 100, 0, 1, 0) })
+                -- the number counts up alongside its bar
+                for step = 1, 18 do
+                    if not t.num.Parent then return end
+                    t.num.Text = tostring(math.floor(t.b.value * step / 18 + 0.5))
+                    task.wait(0.05)
+                end
+                t.num.Text = t.b.shown
+            end)
+        end
+    end
+end
+
+-- the first card is the headline, so it is the one filled in
+local FEATURES = { "Fully keyless", "HWID ban bypass", "Automatic updates", "Multi instance" }
+
+local function featureSlide(page)
+    slideHeading(page, "Keyless, and everything else you need")
+    local gap = 10
+    local w = math.floor((SLIDE_W - gap) / 2)
+    local pops = {}
+    for i, feature in ipairs(FEATURES) do
+        local lead = i == 1
+        local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
+        local card = make("Frame", {
+            BackgroundColor3 = lead and C.accent or C.surface2, AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromOffset(col * (w + gap) + w / 2, 49 + row * 46), Size = UDim2.fromOffset(w, 38), Parent = page,
+        })
+        corner(card, 10)
+        if not lead then stroke(card, C.white, 0.92) end
+        local dot = make("Frame", { BackgroundColor3 = lead and C.accentDk or C.accent, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 14, 0.5, 0), Size = UDim2.fromOffset(8, 8), Parent = card })
+        corner(dot, 4)
+        txt({ Text = feature, FontFace = lead and FONT.bold or FONT.semi, TextSize = 13, TextColor3 = lead and C.accentDk or C.text, Position = UDim2.fromOffset(32, 0), Size = UDim2.new(1, -40, 1, 0), Parent = card })
+        pops[i] = make("UIScale", { Scale = 1, Parent = card })
+    end
+    return function()
+        for i, pop in ipairs(pops) do
+            pop.Scale = 0
+            task.delay((i - 1) * 0.08, function() tween(pop, TI(0.4, Enum.EasingStyle.Back), { Scale = 1 }) end)
+        end
+    end
+end
+
+local SAFETY = {
+    { "Undetected by Roblox", "Proof is posted in the Chimera Discord." },
+    { "Undetected by games", "Tested on Steal an Egg, GPO and Bridger Western." },
+    { "Error & output redirection", "Built right in." },
+}
+
+local function safetySlide(page)
+    slideHeading(page, "Safe and reliable")
+    local rows = {}
+    for i, item in ipairs(SAFETY) do
+        local row = make("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 28 + (i - 1) * 33), Size = UDim2.new(1, 0, 0, 30), Parent = page })
+        local bar = make("Frame", { BackgroundColor3 = C.accent, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 3), Size = UDim2.fromOffset(3, 24), Parent = row })
+        corner(bar, 2)
+        txt({ Text = item[1], FontFace = FONT.semi, TextSize = 13, Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -14, 0, 16), Parent = row })
+        txt({ Text = item[2], TextSize = 12, TextColor3 = C.subtext, Position = UDim2.fromOffset(14, 15), Size = UDim2.new(1, -14, 0, 15), Parent = row })
+        rows[i] = { row = row, home = row.Position }
+    end
+    return function()
+        for i, r in ipairs(rows) do
+            r.row.Position = r.home + UDim2.fromOffset(-24, 0)
+            task.delay((i - 1) * 0.1, function() tween(r.row, TI(0.35), { Position = r.home }) end)
+        end
+    end
+end
+
+local RUNS = { { "KiciaHook", "ZeroHub", "Cerberus" }, { "SpeedXHub", "Ouroboros", "and more" } }
+
+local function runsSlide(page)
+    slideHeading(page, "Runs the scripts you already use")
+    local fades = {}
+    for r, names in ipairs(RUNS) do
+        local line = make("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 30 + (r - 1) * 38), Size = UDim2.new(1, 0, 0, 30), Parent = page })
+        make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = line })
+        for i, name in ipairs(names) do
+            local ours, more = name == "Cerberus", name == "and more"
+            local chip = txt({
+                Text = name, FontFace = ours and FONT.bold or FONT.semi, TextSize = 13,
+                TextColor3 = ours and C.accentDk or (more and C.faint or C.text), TextXAlignment = Enum.TextXAlignment.Center,
+                BackgroundTransparency = more and 1 or 0, BackgroundColor3 = ours and C.accent or C.surface2,
+                AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 30), LayoutOrder = i, Parent = line,
+            })
+            corner(chip, 9)
+            make("UIPadding", { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14), Parent = chip })
+            local edge = (not ours and not more) and stroke(chip, C.white, 0.9) or nil
+            fades[#fades + 1] = { chip = chip, bg = chip.BackgroundTransparency, edge = edge }
+        end
+    end
+    txt({ Text = "On Chimera, Cerberus is keyless and fully unlocked.", TextSize = 12, TextColor3 = C.accent, Position = UDim2.fromOffset(0, 108), Size = UDim2.new(1, 0, 0, 16), Parent = page })
+    return function()
+        for i, f in ipairs(fades) do
+            f.chip.TextTransparency, f.chip.BackgroundTransparency = 1, 1
+            if f.edge then f.edge.Transparency = 1 end
+            task.delay((i - 1) * 0.07, function()
+                tween(f.chip, TI(0.3), { TextTransparency = 0, BackgroundTransparency = f.bg })
+                if f.edge then tween(f.edge, TI(0.3), { Transparency = 0.9 }) end
+            end)
+        end
+    end
+end
+
+local FREE_SLIDES = {
+    heroSlide("100% KEYLESS", "Skip the wait — go keyless",
+        "Chimera is a fully keyless executor: no key to get, ever. Run Cerberus on it and you'll never see this wait, and every premium feature unlocks free."),
+    benchmarkSlide, featureSlide, safetySlide, runsSlide,
+}
+
+local PAID_SLIDES = {
+    heroSlide("QUICK TIP", "Have you considered Chimera?",
+        "It's completely keyless, so you'd never need a key for Cerberus again. Every premium feature unlocks on it, free."),
+    benchmarkSlide,
+}
 
 local function checkKey()
+    if onChimera() then return true, "CHIMERA" end
     initLuarmor()
     if not LuarmorAPI then return true, "NO_SDK" end
     local key = ENV.script_key or _G.script_key or script_key
@@ -918,11 +1173,14 @@ local function boot()
     panel:icon(C.accent)
     panel:option(nil)
 
-    local rawKey  = ENV.script_key or _G.script_key or script_key
-    local rawFlag = ENV.inDiscord  or _G.inDiscord  or inDiscord
-    local skipNag = truthy(rawFlag) or truthy(rawKey)
-    if not skipNag then
-        if not panel:nag(60, DISCORD_URL) then return end
+    -- chimera never waits; keyless runs elsewhere wait out the full pitch, keyed runs see a short one now and then
+    local rawKey = ENV.script_key or _G.script_key or script_key
+    if not onChimera() then
+        if not truthy(rawKey) then
+            if not panel:pitch({ seconds = FREE_WAIT, pill = "KEYLESS", slides = FREE_SLIDES, buttons = { chimeraBtn, skipWaitBtn } }) then return end
+        elseif Random.new():NextInteger(1, PAID_PITCH_ODDS) == 1 then
+            if not panel:pitch({ seconds = PAID_PITCH_WAIT, pill = "TIP", slides = PAID_SLIDES, buttons = { chimeraBtn } }) then return end
+        end
     end
 
     panel:set({ title = "Starting up", body = "Getting Cerberus ready.", status = "Detecting game", statusDot = C.accent })
@@ -976,23 +1234,28 @@ local function boot()
             if code == "NO_KEY" then
                 fail({
                     title = "No key found", pill = "NO KEY",
-                    body = "We couldn't find a Cerberus key. Grab one from our Discord, then run the script again.\n\nAlready loaded a key? Make sure script_key is set before running the loader.",
-                    buttons = { discordBtn, closeBtn },
+                    body = "This script needs a Cerberus key, and we couldn't find one.\n\nWant it free? Run it on Chimera, the fully keyless executor, and no key is needed. Or get a key from our Discord and set script_key before running the loader.",
+                    buttons = { chimeraBtn, getKeyBtn, closeBtn },
                 })
             else
                 fail({
                     title = "Key not valid", pill = "KEY",
-                    body = "Your key didn't pass verification (" .. tostring(code) .. "). It may be expired, reset, or for a different plan. Get a fresh one from our Discord.",
+                    body = "Your key didn't pass verification (" .. tostring(code) .. "). It may be expired, reset, or for a different plan.\n\nSkip keys for good: run it on Chimera, the fully keyless executor. Or get a fresh key from our Discord.",
                     buttons = {
-                        discordBtn,
+                        chimeraBtn,
+                        getKeyBtn,
                         { text = "Copy Code", kind = "ghost", flash = "Copied!", cb = function() return copyTo(tostring(code)) end },
-                        closeBtn,
                     },
                 })
             end
             return
         end
-        panel:set({ status = "Key verified", statusDot = C.accent })
+        if code == "CHIMERA" then
+            panel:mode("KEYLESS", C.accent)
+            panel:set({ status = "Keyless on Chimera, no key needed", statusDot = C.accent })
+        else
+            panel:set({ status = "Key verified", statusDot = C.accent })
+        end
     end
 
     panel:progress(0.6)
@@ -1005,15 +1268,14 @@ local function warnUnsupported(name)
         title = name .. " isn't supported",
         pill = "UNSUPPORTED",
         body = "Cerberus doesn't work properly on " .. name .. " — it's missing things our scripts need, so features will break or nothing will load.\n\n"
-            .. "Copy the link below for executors that do work. Can't pay for one? Hit \"I'm broke\".",
+            .. "Switch to Chimera instead. It's free, fully keyless, and runs every Cerberus script.",
         option = {
             text = "Don't show this again",
             failText = "Couldn't save — this executor can't write files",
             cb = function(want) return setWarningDismissed(want, name) end,
         },
         buttons = {
-            { text = "Copy Executor List", kind = "primary", flash = "Link copied!", cb = function() return copyTo(EXECUTORS_URL) end },
-            { text = "I'm broke", kind = "ghost", flash = "Link copied!", cb = function() return copyTo(BROKE_URL) end },
+            chimeraBtn,
             { text = "Continue anyway", kind = "ghost", cb = function() task.spawn(boot) end },
         },
     })
