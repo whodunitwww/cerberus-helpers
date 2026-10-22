@@ -220,13 +220,15 @@ local SKIP_FILE        = "Cerberus/executor_warning.txt"
 local LOGO_ASSET       = "rbxassetid://136497541793809"
 
 -- off chimera, a keyless run waits FREE_WAIT; a keyed run gets a short pitch one run in PAID_PITCH_ODDS
-local FREE_WAIT        = 15
+local FREE_WAIT        = 30
 local PAID_PITCH_WAIT  = 5
 local PAID_PITCH_ODDS  = 3
 
--- the pitch slides fill the window body between the header and the progress bar
-local SLIDE_W, SLIDE_H = 416, 126
+-- the window, shrunk to fit small screens; the pitch slides fill its body between the header and the progress bar
+local WIN_W, WIN_H     = 560, 380
+local SLIDE_W, SLIDE_H = WIN_W - 44, WIN_H - 174
 
+-- cerberus' own look; every surface the pitch re-dresses reads a palette shaped like this one
 local C = {
     bg        = Color3.fromRGB(12, 15, 21),
     surface   = Color3.fromRGB(20, 25, 33),
@@ -241,7 +243,34 @@ local C = {
     danger    = Color3.fromRGB(255, 96, 96),
     amber     = Color3.fromRGB(255, 184, 70),
     white     = Color3.fromRGB(255, 255, 255),
+    edge      = Color3.fromRGB(255, 255, 255),
+    edgeFade  = 0.9,
 }
+
+-- chimera's crest theme (chimera-v5 build-config/ui-theme.json): near-black panels, quiet 1px lines, gold on dark ink
+local CH = {
+    bg        = Color3.fromRGB(12, 13, 13),
+    surface   = Color3.fromRGB(23, 24, 26),
+    surface2  = Color3.fromRGB(34, 35, 37),
+    track     = Color3.fromRGB(44, 45, 48),
+    text      = Color3.fromRGB(230, 231, 234),
+    textSoft  = Color3.fromRGB(205, 208, 213),
+    subtext   = Color3.fromRGB(159, 163, 173),
+    faint     = Color3.fromRGB(127, 133, 143),
+    accent    = Color3.fromRGB(214, 168, 78),
+    accentHi  = Color3.fromRGB(237, 201, 119),
+    accentDk  = Color3.fromRGB(26, 20, 8),
+    teal      = Color3.fromRGB(93, 192, 179),
+    lineSoft  = Color3.fromRGB(40, 41, 44),
+    danger    = C.danger,
+    amber     = C.amber,
+    white     = C.white,
+    edge      = Color3.fromRGB(57, 59, 63),
+    edgeFade  = 0,
+}
+local GOLD_HEX = "#d6a84e"
+-- a word in chimera's gold italics, for rich-text headlines
+local function gold(word) return ('<i><font color="%s">%s</font></i>'):format(GOLD_HEX, word) end
 
 local UNIVERSE_MAP = {
     ["3764534614"] = "runeSlayer.lua", ["6115988515"] = "animeSaga.lua", ["7095682825"] = "beaks.lua",
@@ -367,6 +396,24 @@ local FONT = {
     bold = face(Enum.FontWeight.Bold),
 }
 
+-- chimera headlines in a garamond serif and labels in a mono, the nearest roblox ships; builder sans if either is missing
+local function family(enumName, weight)
+    local ok, f = pcall(function() return Font.new(Font.fromEnum(Enum.Font[enumName]).Family, weight) end)
+    if ok and f then return f end
+    return face(weight)
+end
+local SERIF = family("Garamond", Enum.FontWeight.Bold)
+local MONO  = family("RobotoMono", Enum.FontWeight.Medium)
+C.radius, C.display, C.displaySize = 10, FONT.bold, 18
+CH.radius, CH.display, CH.displaySize = 6, SERIF, 24
+
+-- shrink the window on screens too small for it (phones in landscape are ~360 tall)
+local function fitScale()
+    local ok, size = pcall(function() return workspace.CurrentCamera.ViewportSize end)
+    if not ok or typeof(size) ~= "Vector2" or size.X <= 0 then return 1 end
+    return math.min(1, (size.X - 24) / WIN_W, (size.Y - 24) / WIN_H)
+end
+
 local function make(class, props)
     local inst = Instance.new(class)
     if props then
@@ -405,6 +452,15 @@ local function txt(props)
     return t
 end
 
+-- text that shrinks to fit its box rather than running past it, and never grows beyond TextSize
+local function stxt(props)
+    local size = props.TextSize or 13
+    props.TextScaled = true
+    local label = txt(props)
+    make("UITextSizeConstraint", { MaxTextSize = size, MinTextSize = math.min(size, 9), Parent = label })
+    return label
+end
+
 local function pickParent()
     local ok, hui = pcall(function() return gethui and gethui() end)
     if ok and typeof(hui) == "Instance" then return hui end
@@ -441,17 +497,19 @@ function Panel.new()
     gui.Parent = parent
     self.gui = gui
 
-    local W, H = 460, 300
+    local W, H = WIN_W, WIN_H
     local holder = make("Frame", {
         BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(W, H), Parent = gui,
     })
     self.holder = holder
-    self.scale = make("UIScale", { Scale = 0.94, Parent = holder })
+    self.fit = fitScale()
+    self.scale = make("UIScale", { Scale = 0.94 * self.fit, Parent = holder })
+    self.theme = C
 
     local win = make("CanvasGroup", { BackgroundColor3 = C.bg, GroupTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 1, Parent = holder })
     corner(win, 16)
-    stroke(win, C.white, 0.9)
+    self.winStroke = stroke(win, C.edge, C.edgeFade)
     self.win = win
 
     local header = make("Frame", { BackgroundTransparency = 1, Active = true, Size = UDim2.new(1, 0, 0, 56), Parent = win })
@@ -459,7 +517,7 @@ function Panel.new()
     local dot = make("Frame", { BackgroundColor3 = C.accent, Position = UDim2.fromOffset(22, 25), Size = UDim2.fromOffset(8, 8), Parent = header })
     corner(dot, 4)
     local word = txt({ Text = "CERBERUS", FontFace = FONT.bold, TextSize = 16, Position = UDim2.fromOffset(40, 0), Size = UDim2.fromOffset(140, 56), Parent = header })
-    grad(word, C.accent, C.accentHi, 90)
+    self.dot, self.wordGrad = dot, grad(word, C.accent, C.accentHi, 90)
 
     local pill = make("Frame", { BackgroundColor3 = C.surface2, Position = UDim2.fromOffset(140, 20), Size = UDim2.fromOffset(84, 18), Parent = header })
     corner(pill, 6)
@@ -477,7 +535,7 @@ function Panel.new()
     self:track(close.MouseLeave:Connect(function() tween(close, TI(0.16), { BackgroundTransparency = 1, TextColor3 = C.subtext }) end))
     self:track(close.MouseButton1Click:Connect(function() self:destroy() end))
 
-    make("Frame", { BackgroundColor3 = C.white, BackgroundTransparency = 0.92, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 56), Size = UDim2.new(1, 0, 0, 1), Parent = win })
+    self.divider = make("Frame", { BackgroundColor3 = C.white, BackgroundTransparency = 0.92, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 56), Size = UDim2.new(1, 0, 0, 1), Parent = win })
 
     local iconWrap = make("Frame", { BackgroundColor3 = C.accent, BackgroundTransparency = 0.86, Position = UDim2.fromOffset(22, 78), Size = UDim2.fromOffset(46, 46), Parent = win })
     corner(iconWrap, 12)
@@ -491,7 +549,7 @@ function Panel.new()
     local bodyScroll = make("ScrollingFrame", {
         BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = C.faint,
         CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
-        Position = UDim2.fromOffset(84, 104), Size = UDim2.new(1, -106, 0, 92), Parent = win,
+        Position = UDim2.fromOffset(84, 104), Size = UDim2.new(1, -106, 0, H - 208), Parent = win,
     })
     local body = txt({
         Text = "Getting things ready.", TextSize = 14, TextColor3 = C.subtext, TextWrapped = true,
@@ -500,7 +558,7 @@ function Panel.new()
     })
     self.body, self.bodyScroll = body, bodyScroll
 
-    local progWrap = make("Frame", { BackgroundColor3 = C.track, BorderSizePixel = 0, ClipsDescendants = true, Position = UDim2.fromOffset(22, 210), Size = UDim2.new(1, -44, 0, 5), Parent = win })
+    local progWrap = make("Frame", { BackgroundColor3 = C.track, BorderSizePixel = 0, ClipsDescendants = true, Position = UDim2.fromOffset(22, H - 90), Size = UDim2.new(1, -44, 0, 5), Parent = win })
     corner(progWrap, 3)
     local fill = make("Frame", { BackgroundColor3 = C.accent, BorderSizePixel = 0, Size = UDim2.new(0, 0, 1, 0), Parent = progWrap })
     corner(fill, 3)
@@ -509,7 +567,7 @@ function Panel.new()
     make("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) }), Parent = sweep })
     self.progWrap, self.fill, self.sweep = progWrap, fill, sweep
 
-    local statusRow = make("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(22, 224), Size = UDim2.new(1, -44, 0, 16), Parent = win })
+    local statusRow = make("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(22, H - 76), Size = UDim2.new(1, -44, 0, 16), Parent = win })
     local statusDot = make("Frame", { BackgroundColor3 = C.accent, Position = UDim2.fromOffset(0, 5), Size = UDim2.fromOffset(6, 6), Parent = statusRow })
     corner(statusDot, 3)
     local statusLbl = txt({ Text = "Starting", TextSize = 12, TextColor3 = C.faint, Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -14, 1, 0), Parent = statusRow })
@@ -530,7 +588,23 @@ function Panel:track(c) table.insert(self.conns, c); return c end
 
 function Panel:_enter()
     tween(self.win, TI(0.22), { GroupTransparency = 0 })
-    tween(self.scale, TI(0.32, Enum.EasingStyle.Back), { Scale = 1 })
+    tween(self.scale, TI(0.32, Enum.EasingStyle.Back), { Scale = self.fit })
+end
+
+-- recolour the window chrome and every button built from here on; the pitch dresses in chimera and back
+function Panel:dress(T)
+    self.theme = T
+    self.win.BackgroundColor3 = T.bg
+    self.winStroke.Color, self.winStroke.Transparency = T.edge, T.edgeFade
+    self.dot.BackgroundColor3 = T.accent
+    self.wordGrad.Color = ColorSequence.new(T.accent, T.accentHi)
+    self.divider.BackgroundColor3 = T.edge
+    self.divider.BackgroundTransparency = T.edgeFade > 0 and 0.92 or 0.4
+    self.pill.BackgroundColor3 = T.surface2
+    self.progWrap.BackgroundColor3 = T.track
+    self.fill.BackgroundColor3, self.sweep.BackgroundColor3 = T.accent, T.accent
+    self.statusDot.BackgroundColor3 = T.accent
+    self.statusLbl.TextColor3 = T.faint
 end
 
 function Panel:_drag()
@@ -619,17 +693,22 @@ function Panel:busy()
     self.sweepTween = tween(self.sweep, TweenInfo.new(1.1, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Position = UDim2.new(1.03, 0, 0, 0) })
 end
 
--- auto-advancing slides in the window body: each page fades and drifts in from the right, dots track
--- the page; a builder fills its page and may return a function to play once the page is on screen
+-- a page is a CanvasGroup, which shaves off anything past its own edges; it is padded PAGE_PAD beyond its
+-- content on every side so outer strokes and italic overhang on anything flush with the content still draw
+local PAGE_PAD = 8
+
+-- auto-advancing slides in the window body: each page fades and rises into place, dots track
+-- the page; a builder fills its page's content frame and may return a function to play once it is on screen
 function Panel:slides(builders, interval)
     self:stopSlides()
+    local pageW, pageH = SLIDE_W + PAGE_PAD * 2, SLIDE_H + PAGE_PAD * 2
     local wrap = make("Frame", {
         BackgroundTransparency = 1, ClipsDescendants = true,
-        Position = UDim2.fromOffset(22, 62), Size = UDim2.fromOffset(SLIDE_W, SLIDE_H + 14), Parent = self.win,
+        Position = UDim2.fromOffset(22 - PAGE_PAD, 62 - PAGE_PAD), Size = UDim2.fromOffset(pageW, pageH + 14), Parent = self.win,
     })
     local dotRow = make("Frame", {
-        BackgroundTransparency = 1, Visible = #builders > 1, AnchorPoint = Vector2.new(0.5, 1),
-        Position = UDim2.new(0.5, 0, 1, 0), Size = UDim2.new(1, 0, 0, 6), Parent = wrap,
+        BackgroundTransparency = 1, Visible = #builders > 1, AnchorPoint = Vector2.new(0.5, 0),
+        Position = UDim2.new(0.5, 0, 0, PAGE_PAD + SLIDE_H + 8), Size = UDim2.new(1, 0, 0, 6), Parent = wrap,
     })
     make("UIListLayout", {
         FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -640,10 +719,14 @@ function Panel:slides(builders, interval)
     for i, build in ipairs(builders) do
         local page = make("CanvasGroup", {
             BackgroundTransparency = 1, GroupTransparency = 1, Visible = false,
-            Size = UDim2.fromOffset(SLIDE_W, SLIDE_H), Parent = wrap,
+            Size = UDim2.fromOffset(pageW, pageH), Parent = wrap,
         })
-        pages[i], plays[i] = page, build(page, self)
-        dots[i] = make("Frame", { BackgroundColor3 = C.faint, BorderSizePixel = 0, Size = UDim2.fromOffset(6, 6), LayoutOrder = i, Parent = dotRow })
+        local content = make("Frame", {
+            BackgroundTransparency = 1, Position = UDim2.fromOffset(PAGE_PAD, PAGE_PAD),
+            Size = UDim2.fromOffset(SLIDE_W, SLIDE_H), Parent = page,
+        })
+        pages[i], plays[i] = page, build(content, self)
+        dots[i] = make("Frame", { BackgroundColor3 = CH.track, BorderSizePixel = 0, Size = UDim2.fromOffset(6, 6), LayoutOrder = i, Parent = dotRow })
         corner(dots[i], 3)
     end
 
@@ -651,13 +734,13 @@ function Panel:slides(builders, interval)
     local function go(i)
         local prev = pages[shown]
         if prev then
-            tween(prev, TI(0.3), { GroupTransparency = 1, Position = UDim2.fromOffset(-28, 0) })
-            tween(dots[shown], TI(0.3), { BackgroundColor3 = C.faint, Size = UDim2.fromOffset(6, 6) })
+            tween(prev, TI(0.35, Enum.EasingStyle.Quint), { GroupTransparency = 1, Position = UDim2.fromOffset(0, -14) })
+            tween(dots[shown], TI(0.3), { BackgroundColor3 = CH.track, Size = UDim2.fromOffset(6, 6) })
         end
         local page = pages[i]
-        page.Position, page.GroupTransparency, page.Visible = UDim2.fromOffset(28, 0), 1, true
-        tween(page, TI(0.4), { GroupTransparency = 0, Position = UDim2.fromOffset(0, 0) })
-        tween(dots[i], TI(0.3), { BackgroundColor3 = C.accent, Size = UDim2.fromOffset(18, 6) })
+        page.Position, page.GroupTransparency, page.Visible = UDim2.fromOffset(0, 14), 1, true
+        tween(page, TI(0.5, Enum.EasingStyle.Quint), { GroupTransparency = 0, Position = UDim2.fromOffset(0, 0) })
+        tween(dots[i], TI(0.3), { BackgroundColor3 = CH.accent, Size = UDim2.fromOffset(20, 6) })
         if plays[i] then pcall(plays[i]) end
         shown = i
     end
@@ -679,15 +762,49 @@ function Panel:stopSlides()
     if self.slideWrap then self.slideWrap:Destroy(); self.slideWrap = nil end
 end
 
--- the chimera pitch: slides play in the body while the bar fills over `seconds`; false if the window was closed
+-- the pitch's ask, pinned under the bar for the whole wait: what chimera is, and the one thing to do about it
+function Panel:_pitchCard(o)
+    local card = make("Frame", { BackgroundColor3 = CH.surface, Position = UDim2.fromOffset(22, WIN_H - 74), Size = UDim2.new(1, -44, 0, 56), Parent = self.win })
+    corner(card, 8)
+    stroke(card, CH.edge, 0)
+    make("ImageLabel", { BackgroundTransparency = 1, Image = CHIMERA_LOGO, ScaleType = Enum.ScaleType.Fit, Position = UDim2.fromOffset(12, 11), Size = UDim2.fromOffset(34, 34), Parent = card })
+
+    local textW = -(58 + 150 + 22)
+    local nameRow = make("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(58, 9), Size = UDim2.new(1, textW, 0, 20), Parent = card })
+    make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = nameRow })
+    txt({ Text = "Chimera", FontFace = SERIF, TextSize = 19, TextColor3 = CH.text, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 20), LayoutOrder = 1, Parent = nameRow })
+    local tag = txt({
+        Text = "FREE KEYLESS EXECUTOR", FontFace = MONO, TextSize = 9, TextColor3 = CH.accent, TextXAlignment = Enum.TextXAlignment.Center,
+        BackgroundColor3 = CH.accent, BackgroundTransparency = 0.88, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 16), LayoutOrder = 2, Parent = nameRow,
+    })
+    corner(tag, 4)
+    make("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), Parent = tag })
+    stxt({ Text = o.sub, TextSize = 12, TextColor3 = CH.subtext, Position = UDim2.fromOffset(58, 31), Size = UDim2.new(1, textW, 0, 16), Parent = card })
+
+    local spec = o.cta
+    local btn = self:_button(spec, 150, 36, card, 1, function(b)
+        b.Text = spec.cb() == false and "Unavailable" or spec.flash
+        task.delay(1.4, function() if b.Parent then b.Text = spec.text end end)
+    end)
+    btn.AnchorPoint, btn.Position = Vector2.new(1, 0.5), UDim2.new(1, -10, 0.5, 0)
+    return card
+end
+
+-- the chimera pitch: the window dresses in chimera's theme, slides play while the bar fills over `seconds`
+-- with the countdown beside it, and the chimera card holds the ask; then it all undresses. false if the window was closed
 function Panel:pitch(o)
-    self:mode(o.pill, C.accent)
+    self:dress(CH)
+    self:mode(o.pill, CH.accent)
     self.iconWrap.Visible, self.title.Visible, self.bodyScroll.Visible = false, false, false
+    self.statusRow.Visible, self.btnRow.Visible = false, false
     self.progWrap.Visible = true
-    self.statusRow.Visible = true
-    self.statusDot.BackgroundColor3 = C.accent
+    self.progWrap.Size = UDim2.new(1, -44 - 52, 0, 5)
+    local timer = txt({
+        Text = "", FontFace = MONO, TextSize = 12, TextColor3 = CH.faint, TextXAlignment = Enum.TextXAlignment.Right,
+        AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -22, 0, WIN_H - 88), Size = UDim2.fromOffset(44, 16), Parent = self.win,
+    })
+    local card = self:_pitchCard(o)
     self:slides(o.slides, o.seconds / #o.slides)
-    self:buttons(o.buttons)
 
     self.sweep.Visible = false
     if self.sweepTween then self.sweepTween:Cancel(); self.sweepTween = nil end
@@ -696,90 +813,40 @@ function Panel:pitch(o)
 
     for s = o.seconds, 1, -1 do
         if not self.gui then return false end
-        self.statusLbl.Text = "Continuing in " .. s .. "s"
+        timer.Text = s .. "s"
         task.wait(1)
     end
-    self:closePopup()
     self:stopSlides()
     if not self.gui then return false end
+    timer:Destroy()
+    card:Destroy()
+    self.progWrap.Size = UDim2.new(1, -44, 0, 5)
+    self.statusRow.Visible = true
+    self:dress(C)
     self.iconWrap.Visible, self.title.Visible, self.bodyScroll.Visible = true, true, true
     return true
 end
 
-function Panel:popup(o)
-    self:closePopup()
-
-    local scrim = make("TextButton", {
-        Text = "", AutoButtonColor = false, BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 1,
-        Size = UDim2.fromScale(1, 1), ZIndex = 500, Parent = self.gui,
+-- one button in the current theme: primary is accent on ink, ghost is a quiet raised surface
+function Panel:_button(spec, w, h, parent, order, onClick)
+    local T = self.theme
+    local primary = spec.kind == "primary"
+    local b = make("TextButton", {
+        Text = spec.text, FontFace = primary and FONT.semi or FONT.med, TextSize = 13,
+        TextColor3 = primary and T.accentDk or T.subtext, AutoButtonColor = false,
+        BackgroundColor3 = primary and T.accent or T.surface2, LayoutOrder = order,
+        Size = UDim2.fromOffset(w, h), Parent = parent,
     })
-    tween(scrim, TI(0.18), { BackgroundTransparency = 0.55 })
-
-    local holder = make("Frame", {
-        BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromOffset(400, 10), AutomaticSize = Enum.AutomaticSize.Y, ZIndex = 501, Parent = self.gui,
-    })
-    local hscale = make("UIScale", { Scale = 0.9, Parent = holder })
-    local dlg = make("Frame", { BackgroundColor3 = C.surface, Size = UDim2.new(1, 0, 0, 10), AutomaticSize = Enum.AutomaticSize.Y, Parent = holder })
-    corner(dlg, 16)
-    stroke(dlg, C.white, 0.88)
-    make("UIPadding", { PaddingTop = UDim.new(0, 18), PaddingBottom = UDim.new(0, 16), PaddingLeft = UDim.new(0, 18), PaddingRight = UDim.new(0, 18), Parent = dlg })
-    make("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder, Parent = dlg })
-
-    txt({ Text = o.title or "Cerberus", FontFace = FONT.bold, TextSize = 18, TextColor3 = C.text, Size = UDim2.new(1, 0, 0, 24), LayoutOrder = 1, Parent = dlg })
-    if o.intro then
-        txt({ Text = o.intro, TextSize = 13, TextColor3 = C.subtext, TextWrapped = true, AutomaticSize = Enum.AutomaticSize.Y, Size = UDim2.new(1, 0, 0, 0), LayoutOrder = 2, Parent = dlg })
-    end
-    for i, step in ipairs(o.steps or {}) do
-        local row = make("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 26), LayoutOrder = 10 + i, Parent = dlg })
-        local chip = make("Frame", { BackgroundColor3 = C.accent, BackgroundTransparency = 0.85, Position = UDim2.fromOffset(0, 2), Size = UDim2.fromOffset(22, 22), Parent = row })
-        corner(chip, 6)
-        stroke(chip, C.accent, 0.4)
-        txt({ Text = tostring(i), FontFace = FONT.bold, TextSize = 12, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), Parent = chip })
-        txt({ Text = step, TextSize = 13, TextColor3 = C.text, TextYAlignment = Enum.TextYAlignment.Center, Position = UDim2.fromOffset(32, 0), Size = UDim2.new(1, -32, 1, 0), Parent = row })
-    end
-    if o.footer then
-        txt({ Text = o.footer, TextSize = 12, TextColor3 = C.faint, TextWrapped = true, AutomaticSize = Enum.AutomaticSize.Y, Size = UDim2.new(1, 0, 0, 0), LayoutOrder = 40, Parent = dlg })
-    end
-
-    local btns = make("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 38), LayoutOrder = 50, Parent = dlg })
-    make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 10), Parent = btns })
-    for i, spec in ipairs(o.buttons or {}) do
-        local primary = spec.kind == "primary"
-        local b = make("TextButton", {
-            Text = spec.text, FontFace = primary and FONT.semi or FONT.med, TextSize = 13,
-            TextColor3 = primary and C.accentDk or C.subtext, AutoButtonColor = false,
-            BackgroundColor3 = primary and C.accent or C.surface2, Size = UDim2.fromOffset(primary and 166 or 96, 34), LayoutOrder = i, Parent = btns,
-        })
-        corner(b, 9)
-        if not primary then stroke(b, C.white, 0.9) end
-        self:track(b.MouseEnter:Connect(function() tween(b, TI(0.1), primary and { BackgroundColor3 = C.accentHi } or { TextColor3 = C.text, BackgroundColor3 = C.track }) end))
-        self:track(b.MouseLeave:Connect(function() tween(b, TI(0.16), primary and { BackgroundColor3 = C.accent } or { TextColor3 = C.subtext, BackgroundColor3 = C.surface2 }) end))
-        self:track(b.MouseButton1Click:Connect(function()
-            local ok = spec.cb and spec.cb()
-            if spec.flash then
-                b.Text = ok == false and "Unavailable" or spec.flash
-                task.delay(1.4, function() if b.Parent then b.Text = spec.text end end)
-            end
-            if spec.close then self:closePopup() end
-        end))
-    end
-
-    tween(hscale, TI(0.28, Enum.EasingStyle.Back), { Scale = 1 })
-    self._popup = { scrim = scrim, holder = holder, scale = hscale }
-    self:track(scrim.MouseButton1Click:Connect(function() self:closePopup() end))
-end
-
-function Panel:closePopup()
-    local p = self._popup
-    if not p then return end
-    self._popup = nil
-    tween(p.scrim, TI(0.16), { BackgroundTransparency = 1 })
-    local t = tween(p.scale, TI(0.14), { Scale = 0.9 })
-    t.Completed:Connect(function()
-        if p.scrim then p.scrim:Destroy() end
-        if p.holder then p.holder:Destroy() end
-    end)
+    corner(b, T.radius)
+    if not primary then stroke(b, T.edge, T.edgeFade) end
+    self:track(b.MouseEnter:Connect(function()
+        tween(b, TI(0.1), primary and { BackgroundColor3 = T.accentHi } or { TextColor3 = T.text, BackgroundColor3 = T.track })
+    end))
+    self:track(b.MouseLeave:Connect(function()
+        tween(b, TI(0.16), primary and { BackgroundColor3 = T.accent } or { TextColor3 = T.subtext, BackgroundColor3 = T.surface2 })
+    end))
+    self:track(b.MouseButton1Click:Connect(function() onClick(b) end))
+    return b
 end
 
 function Panel:buttons(list)
@@ -788,23 +855,7 @@ function Panel:buttons(list)
     end
     if not list or #list == 0 then self.btnRow.Visible = false; return end
     for i, spec in ipairs(list) do
-        local primary = spec.kind == "primary"
-        local w = primary and 166 or 112
-        local b = make("TextButton", {
-            Text = spec.text, FontFace = primary and FONT.semi or FONT.med, TextSize = 13,
-            TextColor3 = primary and C.accentDk or C.subtext, AutoButtonColor = false,
-            BackgroundColor3 = primary and C.accent or C.surface2, LayoutOrder = i,
-            Size = UDim2.fromOffset(w, 36), Parent = self.btnRow,
-        })
-        corner(b, 10)
-        if not primary then stroke(b, C.white, 0.9) end
-        self:track(b.MouseEnter:Connect(function()
-            tween(b, TI(0.1), primary and { BackgroundColor3 = C.accentHi } or { TextColor3 = C.text, BackgroundColor3 = C.track })
-        end))
-        self:track(b.MouseLeave:Connect(function()
-            tween(b, TI(0.16), primary and { BackgroundColor3 = C.accent } or { TextColor3 = C.subtext, BackgroundColor3 = C.surface2 })
-        end))
-        self:track(b.MouseButton1Click:Connect(function()
+        self:_button(spec, spec.kind == "primary" and 184 or 124, 38, self.btnRow, i, function(b)
             if spec.flash then
                 local ok = spec.cb and spec.cb()
                 b.Text = ok == false and "Unavailable" or spec.flash
@@ -812,7 +863,7 @@ function Panel:buttons(list)
             elseif spec.cb then
                 spec.cb()
             end
-        end))
+        end)
     end
     self.btnRow.Visible = true
 end
@@ -824,7 +875,7 @@ function Panel:option(spec)
 
     local row = make("TextButton", {
         Text = "", AutoButtonColor = false, BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(22, 204), Size = UDim2.new(1, -44, 0, 24), Parent = self.win,
+        Position = UDim2.fromOffset(22, WIN_H - 96), Size = UDim2.new(1, -44, 0, 24), Parent = self.win,
     })
     self.optRow = row
 
@@ -865,7 +916,7 @@ end
 function Panel:fadeOut(cb)
     self:stopPulse()
     if self.sweepTween then self.sweepTween:Cancel(); self.sweepTween = nil end
-    tween(self.scale, TI(0.2), { Scale = 0.96 })
+    tween(self.scale, TI(0.2), { Scale = 0.96 * self.fit })
     local t = tween(self.win, TI(0.2), { GroupTransparency = 1 })
     t.Completed:Connect(function() self:destroy(); if cb then cb() end end)
 end
@@ -897,49 +948,64 @@ end
 local closeBtn = { text = "Close", kind = "ghost", cb = function() panel:destroy() end }
 local getKeyBtn = { text = "Get a key", kind = "ghost", flash = "Discord copied!", cb = function() return copyTo(DISCORD_URL) end }
 local chimeraBtn = { text = "Copy Chimera Discord", kind = "primary", flash = "Link copied!", cb = function() return copyTo(CHIMERA_DISCORD) end }
+-- the pitch card's one action
+local ctaBtn = { text = "Get Chimera", kind = "primary", flash = "Discord copied!", cb = function() return copyTo(CHIMERA_DISCORD) end }
 
-local skipWaitBtn = { text = "Skip the wait", kind = "ghost", cb = function()
-    panel:popup({
-        title = "Skip the wait — go keyless",
-        intro = "Chimera is a fully keyless executor. Run Cerberus on it and this wait is gone for good.",
-        steps = {
-            "Join the Chimera Discord.",
-            "Download Chimera — no key, ever.",
-            "Run Cerberus there. No wait, no key.",
-        },
-        footer = "On Chimera, every premium Cerberus feature unlocks for free too.",
-        buttons = {
-            { text = "Copy Chimera Discord", kind = "primary", flash = "Link copied!", cb = function() return copyTo(CHIMERA_DISCORD) end },
-            { text = "Got it", kind = "ghost", close = true },
-        },
-    })
-end }
+-- chimera pitch slides, in chimera's own look (serif headlines with the key word in gold italics, mono
+-- eyebrows, quiet bordered panels); each fills a blank SLIDE_W x SLIDE_H page and returns what to play on screen.
+-- nothing animates sideways or overshoots, so no slide ever spills past the page's left or right edge
 
--- chimera pitch slides: each fills a blank SLIDE_W x SLIDE_H page and returns what to play when it comes on screen
-local function slideHeading(page, text)
-    return txt({ Text = text, FontFace = FONT.bold, TextSize = 16, Size = UDim2.new(1, 0, 0, 22), Parent = page })
+local function slideHead(page, eyebrow, title)
+    stxt({ Text = eyebrow, FontFace = MONO, TextSize = 11, TextColor3 = CH.accent, Size = UDim2.new(1, 0, 0, 14), Parent = page })
+    stxt({ Text = title, FontFace = SERIF, TextSize = 28, TextColor3 = CH.text, RichText = true, Position = UDim2.fromOffset(0, 16), Size = UDim2.new(1, 0, 0, 34), Parent = page })
+end
+
+-- a soft gold glow: stacked circles, faintest outermost, breathing slowly; `maxD` is the widest it ever gets,
+-- so callers size it to stay inside the page
+local BREATHE = 1.08
+local function glow(page, cx, cy, maxD)
+    local rings = {}
+    for i, fade in ipairs({ 0.9, 0.94, 0.97 }) do
+        local d = math.floor(maxD / BREATHE * (0.4 + i * 0.2))
+        local ring = make("Frame", {
+            BackgroundColor3 = CH.accent, BackgroundTransparency = fade, BorderSizePixel = 0, AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromOffset(cx, cy), Size = UDim2.fromOffset(d, d), ZIndex = 0, Parent = page,
+        })
+        corner(ring, math.floor(d / 2))
+        rings[i] = { ring = ring, d = d }
+    end
+    return function()
+        for i, r in ipairs(rings) do
+            local grown = math.floor(r.d * BREATHE)
+            tween(r.ring, TweenInfo.new(1.6 + i * 0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Size = UDim2.fromOffset(grown, grown) })
+        end
+    end
 end
 
 local function heroSlide(eyebrow, title, body)
     return function(page)
-        local badge = make("Frame", { BackgroundColor3 = C.surface2, Position = UDim2.fromOffset(0, 14), Size = UDim2.fromOffset(88, 88), Parent = page })
+        local breathe = glow(page, 86, 100, 168)
+        local badge = make("Frame", { BackgroundColor3 = CH.surface, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(86, 100), Size = UDim2.fromOffset(120, 120), ZIndex = 2, Parent = page })
         corner(badge, 22)
-        local ring = stroke(badge, C.accent, 0.4, 1.5)
+        local ring = stroke(badge, CH.accent, 0.45, 1.5)
         local logo = make("ImageLabel", {
-            BackgroundTransparency = 1, Image = CHIMERA_LOGO, ScaleType = Enum.ScaleType.Fit,
-            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(62, 62), Parent = badge,
+            BackgroundTransparency = 1, Image = CHIMERA_LOGO, ScaleType = Enum.ScaleType.Fit, ZIndex = 3,
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(84, 84), Parent = badge,
         })
         local pop = make("UIScale", { Scale = 1, Parent = logo })
-        txt({ Text = eyebrow, FontFace = FONT.bold, TextSize = 11, TextColor3 = C.accent, Position = UDim2.fromOffset(106, 12), Size = UDim2.new(1, -106, 0, 14), Parent = page })
-        txt({ Text = title, FontFace = FONT.bold, TextSize = 19, Position = UDim2.fromOffset(106, 28), Size = UDim2.new(1, -106, 0, 26), Parent = page })
-        txt({
-            Text = body, TextSize = 13, TextColor3 = C.subtext, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
-            Position = UDim2.fromOffset(106, 58), Size = UDim2.new(1, -106, 0, 66), Parent = page,
+        stxt({ Text = "CHIMERA", FontFace = MONO, TextSize = 11, TextColor3 = CH.accent, TextXAlignment = Enum.TextXAlignment.Center, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(86, 168), Size = UDim2.fromOffset(120, 14), ZIndex = 2, Parent = page })
+        local x = 186
+        stxt({ Text = eyebrow, FontFace = MONO, TextSize = 11, TextColor3 = CH.accent, Position = UDim2.fromOffset(x, 22), Size = UDim2.new(1, -x, 0, 14), Parent = page })
+        stxt({ Text = title, FontFace = SERIF, TextSize = 36, TextColor3 = CH.text, RichText = true, TextYAlignment = Enum.TextYAlignment.Top, Position = UDim2.fromOffset(x, 40), Size = UDim2.new(1, -x, 0, 88), Parent = page })
+        stxt({
+            Text = body, TextSize = 14, TextColor3 = CH.subtext, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
+            Position = UDim2.fromOffset(x, 132), Size = UDim2.new(1, -x, 0, 72), Parent = page,
         })
         return function()
-            pop.Scale = 0.55
-            tween(pop, TI(0.55, Enum.EasingStyle.Back), { Scale = 1 })
-            tween(ring, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Transparency = 0.9 })
+            pop.Scale = 0.6
+            tween(pop, TI(0.6, Enum.EasingStyle.Quint), { Scale = 1 })
+            tween(ring, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Transparency = 0.85 })
+            breathe()
         end
     end
 end
@@ -951,43 +1017,44 @@ local BENCHMARKS = {
 }
 
 local function benchmarkSlide(page, owner)
-    slideHeading(page, "Top scores on executor tests")
-    local gap = 10
+    slideHead(page, "BENCHMARKS", "Top scores on executor " .. gold("tests"))
+    local gap = 12
     local w = math.floor((SLIDE_W - gap * 2) / 3)
     local tiles = {}
     for i, b in ipairs(BENCHMARKS) do
         local tile = make("TextButton", {
-            Text = "", AutoButtonColor = false, BackgroundColor3 = C.surface2,
-            Position = UDim2.fromOffset((i - 1) * (w + gap), 30), Size = UDim2.fromOffset(w, 74), Parent = page,
+            Text = "", AutoButtonColor = false, BackgroundColor3 = CH.bg,
+            Position = UDim2.fromOffset((i - 1) * (w + gap), 62), Size = UDim2.fromOffset(w, 128), Parent = page,
         })
-        corner(tile, 12)
-        stroke(tile, C.white, 0.92)
-        local num = txt({ Text = "0", FontFace = FONT.bold, TextSize = 28, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Center, Position = UDim2.fromOffset(0, 8), Size = UDim2.new(1, 0, 0, 32), Parent = tile })
-        local name = txt({ Text = b.name, FontFace = FONT.semi, TextSize = 12, TextColor3 = C.subtext, TextXAlignment = Enum.TextXAlignment.Center, Position = UDim2.fromOffset(0, 40), Size = UDim2.new(1, 0, 0, 16), Parent = tile })
-        local bar = make("Frame", { BackgroundColor3 = C.track, BorderSizePixel = 0, Position = UDim2.new(0, 14, 1, -13), Size = UDim2.new(1, -28, 0, 4), Parent = tile })
+        corner(tile, 8)
+        local edge = stroke(tile, CH.lineSoft, 0)
+        stxt({ Text = b.name, FontFace = MONO, TextSize = 12, TextColor3 = CH.faint, Position = UDim2.fromOffset(16, 14), Size = UDim2.new(0.45, -16, 0, 14), Parent = tile })
+        local hint = b.link and stxt({ Text = "COPY LINK", FontFace = MONO, TextSize = 10, TextColor3 = CH.accent, TextXAlignment = Enum.TextXAlignment.Right, Position = UDim2.new(0.45, 0, 0, 14), Size = UDim2.new(0.55, -16, 0, 14), Parent = tile })
+        local num = stxt({ Text = "0", FontFace = SERIF, TextSize = 52, TextColor3 = CH.text, Position = UDim2.fromOffset(16, 36), Size = UDim2.new(1, -32, 0, 54), Parent = tile })
+        stxt({ Text = "out of 100", FontFace = MONO, TextSize = 10, TextColor3 = CH.faint, Position = UDim2.fromOffset(16, 92), Size = UDim2.new(1, -32, 0, 12), Parent = tile })
+        local bar = make("Frame", { BackgroundColor3 = CH.lineSoft, BorderSizePixel = 0, Position = UDim2.new(0, 16, 1, -14), Size = UDim2.new(1, -32, 0, 3), Parent = tile })
         corner(bar, 2)
-        local fill = make("Frame", { BackgroundColor3 = C.accent, BorderSizePixel = 0, Size = UDim2.new(0, 0, 1, 0), Parent = bar })
+        local fill = make("Frame", { BackgroundColor3 = CH.accent, BorderSizePixel = 0, Size = UDim2.new(0, 0, 1, 0), Parent = bar })
         corner(fill, 2)
         if b.link then
-            owner:track(tile.MouseEnter:Connect(function() tween(tile, TI(0.1), { BackgroundColor3 = C.track }) end))
-            owner:track(tile.MouseLeave:Connect(function() tween(tile, TI(0.16), { BackgroundColor3 = C.surface2 }) end))
+            owner:track(tile.MouseEnter:Connect(function() tween(edge, TI(0.15), { Color = CH.accent, Transparency = 0.4 }) end))
+            owner:track(tile.MouseLeave:Connect(function() tween(edge, TI(0.2), { Color = CH.lineSoft, Transparency = 0 }) end))
             owner:track(tile.MouseButton1Click:Connect(function()
-                name.Text = copyTo(b.link) and "Link copied!" or "Unavailable"
-                task.delay(1.4, function() if name.Parent then name.Text = b.name end end)
+                hint.Text = copyTo(b.link) and "COPIED" or "UNAVAILABLE"
+                task.delay(1.4, function() if hint.Parent then hint.Text = "COPY LINK" end end)
             end))
         end
         tiles[i] = { num = num, fill = fill, b = b }
     end
-    txt({ Text = "Tap a score to copy its results link.", TextSize = 11, TextColor3 = C.faint, Position = UDim2.fromOffset(0, 110), Size = UDim2.new(1, 0, 0, 14), Parent = page })
     return function()
         for i, t in ipairs(tiles) do
             t.num.Text, t.fill.Size = "0", UDim2.new(0, 0, 1, 0)
             task.delay((i - 1) * 0.12, function()
-                tween(t.fill, TI(0.9), { Size = UDim2.new(t.b.value / 100, 0, 1, 0) })
+                tween(t.fill, TI(1.1, Enum.EasingStyle.Quint), { Size = UDim2.new(t.b.value / 100, 0, 1, 0) })
                 -- the number counts up alongside its bar
-                for step = 1, 18 do
+                for step = 1, 20 do
                     if not t.num.Parent then return end
-                    t.num.Text = tostring(math.floor(t.b.value * step / 18 + 0.5))
+                    t.num.Text = tostring(math.floor(t.b.value * step / 20 + 0.5))
                     task.wait(0.05)
                 end
                 t.num.Text = t.b.shown
@@ -996,32 +1063,43 @@ local function benchmarkSlide(page, owner)
     end
 end
 
--- the first card is the headline, so it is the one filled in
-local FEATURES = { "Fully keyless", "HWID ban bypass", "Automatic updates", "Multi instance" }
+-- the first card is the headline, so it is the one outlined in gold
+local FEATURES = {
+    { "Fully keyless", "No key to get, ever." },
+    { "HWID ban bypass", "Hardware bans don't stop it." },
+    { "Automatic updates", "Always on the latest build." },
+    { "Multi instance", "Run several clients at once." },
+}
 
 local function featureSlide(page)
-    slideHeading(page, "Keyless, and everything else you need")
-    local gap = 10
+    slideHead(page, "FEATURES", "The executor that's fully " .. gold("keyless"))
+    local gap = 12
     local w = math.floor((SLIDE_W - gap) / 2)
+    local h = 66
     local pops = {}
-    for i, feature in ipairs(FEATURES) do
+    for i, f in ipairs(FEATURES) do
         local lead = i == 1
         local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
         local card = make("Frame", {
-            BackgroundColor3 = lead and C.accent or C.surface2, AnchorPoint = Vector2.new(0.5, 0.5),
-            Position = UDim2.fromOffset(col * (w + gap) + w / 2, 49 + row * 46), Size = UDim2.fromOffset(w, 38), Parent = page,
+            BackgroundColor3 = CH.white, AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromOffset(col * (w + gap) + w / 2, 62 + row * (h + 10) + h / 2), Size = UDim2.fromOffset(w, h), Parent = page,
         })
-        corner(card, 10)
-        if not lead then stroke(card, C.white, 0.92) end
-        local dot = make("Frame", { BackgroundColor3 = lead and C.accentDk or C.accent, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 14, 0.5, 0), Size = UDim2.fromOffset(8, 8), Parent = card })
-        corner(dot, 4)
-        txt({ Text = feature, FontFace = lead and FONT.bold or FONT.semi, TextSize = 13, TextColor3 = lead and C.accentDk or C.text, Position = UDim2.fromOffset(32, 0), Size = UDim2.new(1, -40, 1, 0), Parent = card })
+        corner(card, 8)
+        grad(card, CH.surface, CH.bg, 160)
+        stroke(card, lead and CH.accent or CH.edge, lead and 0.35 or 0)
+        local chip = make("Frame", { BackgroundColor3 = CH.accent, BackgroundTransparency = 0.88, Position = UDim2.fromOffset(14, 16), Size = UDim2.fromOffset(34, 34), Parent = card })
+        corner(chip, 6)
+        local pip = make("Frame", { BackgroundColor3 = CH.accent, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(10, 10), Parent = chip })
+        corner(pip, lead and 5 or 2)
+        stxt({ Text = f[1], FontFace = SERIF, TextSize = 21, TextColor3 = lead and CH.accentHi or CH.text, Position = UDim2.fromOffset(62, 12), Size = UDim2.new(1, -76, 0, 24), Parent = card })
+        stxt({ Text = f[2], TextSize = 12, TextColor3 = CH.subtext, Position = UDim2.fromOffset(62, 38), Size = UDim2.new(1, -76, 0, 16), Parent = card })
         pops[i] = make("UIScale", { Scale = 1, Parent = card })
     end
     return function()
+        -- settle in from slightly smaller, never past full size
         for i, pop in ipairs(pops) do
-            pop.Scale = 0
-            task.delay((i - 1) * 0.08, function() tween(pop, TI(0.4, Enum.EasingStyle.Back), { Scale = 1 }) end)
+            pop.Scale = 0.9
+            task.delay((i - 1) * 0.08, function() tween(pop, TI(0.5, Enum.EasingStyle.Quint), { Scale = 1 }) end)
         end
     end
 end
@@ -1033,68 +1111,67 @@ local SAFETY = {
 }
 
 local function safetySlide(page)
-    slideHeading(page, "Safe and reliable")
+    slideHead(page, "SAFETY", "Safe and " .. gold("reliable"))
     local rows = {}
     for i, item in ipairs(SAFETY) do
-        local row = make("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 28 + (i - 1) * 33), Size = UDim2.new(1, 0, 0, 30), Parent = page })
-        local bar = make("Frame", { BackgroundColor3 = C.accent, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 3), Size = UDim2.fromOffset(3, 24), Parent = row })
-        corner(bar, 2)
-        txt({ Text = item[1], FontFace = FONT.semi, TextSize = 13, Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -14, 0, 16), Parent = row })
-        txt({ Text = item[2], TextSize = 12, TextColor3 = C.subtext, Position = UDim2.fromOffset(14, 15), Size = UDim2.new(1, -14, 0, 15), Parent = row })
+        local row = make("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 62 + (i - 1) * 48), Size = UDim2.new(1, 0, 0, 44), Parent = page })
+        local bar = make("Frame", { BackgroundColor3 = CH.accent, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 6), Size = UDim2.fromOffset(2, 30), Parent = row })
+        corner(bar, 1)
+        stxt({ Text = item[1], FontFace = FONT.semi, TextSize = 15, TextColor3 = CH.text, Position = UDim2.fromOffset(16, 4), Size = UDim2.new(1, -16, 0, 18), Parent = row })
+        stxt({ Text = item[2], TextSize = 12, TextColor3 = CH.subtext, Position = UDim2.fromOffset(16, 23), Size = UDim2.new(1, -16, 0, 15), Parent = row })
+        if i < #SAFETY then
+            make("Frame", { BackgroundColor3 = CH.lineSoft, BorderSizePixel = 0, Position = UDim2.new(0, 16, 1, 1), Size = UDim2.new(1, -16, 0, 1), Parent = row })
+        end
         rows[i] = { row = row, home = row.Position }
     end
     return function()
+        -- each row rises a few pixels into place, staggered
         for i, r in ipairs(rows) do
-            r.row.Position = r.home + UDim2.fromOffset(-24, 0)
-            task.delay((i - 1) * 0.1, function() tween(r.row, TI(0.35), { Position = r.home }) end)
+            r.row.Position = r.home + UDim2.fromOffset(0, 8)
+            task.delay((i - 1) * 0.1, function() tween(r.row, TI(0.45, Enum.EasingStyle.Quint), { Position = r.home }) end)
         end
     end
 end
 
-local RUNS = { { "KiciaHook", "ZeroHub", "Cerberus" }, { "SpeedXHub", "Ouroboros", "and more" } }
-
-local function runsSlide(page)
-    slideHeading(page, "Runs the scripts you already use")
-    local fades = {}
-    for r, names in ipairs(RUNS) do
-        local line = make("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 30 + (r - 1) * 38), Size = UDim2.new(1, 0, 0, 30), Parent = page })
-        make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = line })
-        for i, name in ipairs(names) do
-            local ours, more = name == "Cerberus", name == "and more"
-            local chip = txt({
-                Text = name, FontFace = ours and FONT.bold or FONT.semi, TextSize = 13,
-                TextColor3 = ours and C.accentDk or (more and C.faint or C.text), TextXAlignment = Enum.TextXAlignment.Center,
-                BackgroundTransparency = more and 1 or 0, BackgroundColor3 = ours and C.accent or C.surface2,
-                AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 30), LayoutOrder = i, Parent = line,
-            })
-            corner(chip, 9)
-            make("UIPadding", { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14), Parent = chip })
-            local edge = (not ours and not more) and stroke(chip, C.white, 0.9) or nil
-            fades[#fades + 1] = { chip = chip, bg = chip.BackgroundTransparency, edge = edge }
-        end
+-- the closing ask: skipping the wait is the headline, and the invite is shown in full and tappable, so it
+-- works even where the clipboard doesn't
+local function inviteSlide(page, owner)
+    local breathe = glow(page, SLIDE_W / 2, 140, 132)
+    local function centered(props)
+        props.TextXAlignment = Enum.TextXAlignment.Center
+        props.ZIndex = 2
+        return stxt(props)
     end
-    txt({ Text = "On Chimera, Cerberus is keyless and fully unlocked.", TextSize = 12, TextColor3 = C.accent, Position = UDim2.fromOffset(0, 108), Size = UDim2.new(1, 0, 0, 16), Parent = page })
+    centered({ Text = "FREE FOREVER", FontFace = MONO, TextSize = 11, TextColor3 = CH.accent, Position = UDim2.fromOffset(0, 6), Size = UDim2.new(1, 0, 0, 14), Parent = page })
+    centered({ Text = "Skip the wait with " .. gold("Chimera"), FontFace = SERIF, TextSize = 38, TextColor3 = CH.text, RichText = true, Position = UDim2.fromOffset(0, 24), Size = UDim2.new(1, 0, 0, 46), Parent = page })
+    centered({ Text = "The free keyless Roblox executor. No wait, no key, ever.", TextSize = 14, TextColor3 = CH.subtext, Position = UDim2.fromOffset(0, 76), Size = UDim2.new(1, 0, 0, 18), Parent = page })
+    local invite = make("TextButton", {
+        Text = "discord.gg/fhErCU8GJx", FontFace = MONO, TextSize = 15, TextColor3 = CH.accentHi, AutoButtonColor = false,
+        BackgroundColor3 = CH.bg, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 114),
+        Size = UDim2.fromOffset(270, 44), ZIndex = 2, Parent = page,
+    })
+    corner(invite, 8)
+    local edge = stroke(invite, CH.accent, 0.35, 1.5)
+    centered({ Text = "Tap to copy the invite", FontFace = MONO, TextSize = 10, TextColor3 = CH.faint, Position = UDim2.fromOffset(0, 168), Size = UDim2.new(1, 0, 0, 12), Parent = page })
+    owner:track(invite.MouseButton1Click:Connect(function()
+        invite.Text = copyTo(CHIMERA_DISCORD) and "Invite copied!" or "discord.gg/fhErCU8GJx"
+        task.delay(1.6, function() if invite.Parent then invite.Text = "discord.gg/fhErCU8GJx" end end)
+    end))
     return function()
-        for i, f in ipairs(fades) do
-            f.chip.TextTransparency, f.chip.BackgroundTransparency = 1, 1
-            if f.edge then f.edge.Transparency = 1 end
-            task.delay((i - 1) * 0.07, function()
-                tween(f.chip, TI(0.3), { TextTransparency = 0, BackgroundTransparency = f.bg })
-                if f.edge then tween(f.edge, TI(0.3), { Transparency = 0.9 }) end
-            end)
-        end
+        breathe()
+        tween(edge, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Transparency = 0.8 })
     end
 end
 
 local FREE_SLIDES = {
-    heroSlide("100% KEYLESS", "Skip the wait — go keyless",
-        "Chimera is a fully keyless executor: no key to get, ever. Run Cerberus on it and you'll never see this wait, and every premium feature unlocks free."),
-    benchmarkSlide, featureSlide, safetySlide, runsSlide,
+    heroSlide("MEET CHIMERA", "A free, " .. gold("keyless") .. "\nRoblox executor.",
+        "Run this script on Chimera and you skip the wait, every time. There's no key to get, ever, and every Cerberus premium feature unlocks free."),
+    benchmarkSlide, featureSlide, safetySlide, inviteSlide,
 }
 
 local PAID_SLIDES = {
-    heroSlide("QUICK TIP", "Have you considered Chimera?",
-        "It's completely keyless, so you'd never need a key for Cerberus again. Every premium feature unlocks on it, free."),
+    heroSlide("QUICK TIP", "Have you tried the\nChimera " .. gold("executor") .. "?",
+        "It's a free, fully keyless Roblox executor. On it you'd skip this wait and never need a key for Cerberus again."),
     benchmarkSlide,
 }
 
@@ -1177,9 +1254,9 @@ local function boot()
     local rawKey = ENV.script_key or _G.script_key or script_key
     if not onChimera() then
         if not truthy(rawKey) then
-            if not panel:pitch({ seconds = FREE_WAIT, pill = "KEYLESS", slides = FREE_SLIDES, buttons = { chimeraBtn, skipWaitBtn } }) then return end
+            if not panel:pitch({ seconds = FREE_WAIT, pill = "KEYLESS", slides = FREE_SLIDES, cta = ctaBtn, sub = "Run this script on it and you skip the wait." }) then return end
         elseif Random.new():NextInteger(1, PAID_PITCH_ODDS) == 1 then
-            if not panel:pitch({ seconds = PAID_PITCH_WAIT, pill = "TIP", slides = PAID_SLIDES, buttons = { chimeraBtn } }) then return end
+            if not panel:pitch({ seconds = PAID_PITCH_WAIT, pill = "TIP", slides = PAID_SLIDES, cta = ctaBtn, sub = "On it you'd skip this wait and never need a key." }) then return end
         end
     end
 
@@ -1268,7 +1345,7 @@ local function warnUnsupported(name)
         title = name .. " isn't supported",
         pill = "UNSUPPORTED",
         body = "Cerberus doesn't work properly on " .. name .. " — it's missing things our scripts need, so features will break or nothing will load.\n\n"
-            .. "Switch to Chimera instead. It's free, fully keyless, and runs every Cerberus script.",
+            .. "Switch to the Chimera executor instead. It's free, fully keyless, and runs every Cerberus script.",
         option = {
             text = "Don't show this again",
             failText = "Couldn't save — this executor can't write files",
