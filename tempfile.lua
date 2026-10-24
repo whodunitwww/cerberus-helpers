@@ -219,7 +219,7 @@ local SKIP_FOLDER      = "Cerberus"
 local SKIP_FILE        = "Cerberus/executor_warning.txt"
 local LOGO_ASSET       = "rbxassetid://136497541793809"
 
--- off chimera, a keyless run waits FREE_WAIT; a keyed run gets a short pitch one run in PAID_PITCH_ODDS
+-- off chimera and mobile, a keyless run waits FREE_WAIT; a keyed run gets a short pitch one run in PAID_PITCH_ODDS
 local FREE_WAIT        = 30
 local PAID_PITCH_WAIT  = 5
 local PAID_PITCH_ODDS  = 3
@@ -336,6 +336,15 @@ local function onChimera()
     if type(fn) ~= "function" then return false end
     local ok, on = pcall(fn)
     return ok and truthy(on)
+end
+
+-- phones and tablets; GetPlatform can be locked to a higher identity, so touch-only input is the fallback
+local function onMobile()
+    local ok, platform = pcall(function() return UserInputService:GetPlatform() end)
+    if ok and typeof(platform) == "EnumItem" then
+        return platform == Enum.Platform.IOS or platform == Enum.Platform.Android
+    end
+    return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled and not UserInputService.MouseEnabled
 end
 
 -- executors cerberus does not run on, matched against the reported name
@@ -1250,9 +1259,9 @@ local function boot()
     panel:icon(C.accent)
     panel:option(nil)
 
-    -- chimera never waits; keyless runs elsewhere wait out the full pitch, keyed runs see a short one now and then
+    -- chimera and mobile never wait; keyless runs elsewhere wait out the full pitch, keyed runs see a short one now and then
     local rawKey = ENV.script_key or _G.script_key or script_key
-    if not onChimera() then
+    if not onChimera() and not onMobile() then
         if not truthy(rawKey) then
             if not panel:pitch({ seconds = FREE_WAIT, pill = "KEYLESS", slides = FREE_SLIDES, cta = ctaBtn, sub = "Run this script on it and you skip the wait." }) then return end
         elseif Random.new():NextInteger(1, PAID_PITCH_ODDS) == 1 then
